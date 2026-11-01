@@ -27,6 +27,18 @@ test('a change selects its workspace and every workspace that depends on it', ()
   assert.equal(affected(['tsconfig.base.json'], WS, []).workspaces.length, WS.length);
 });
 
+test("a workspace's projects come from its typecheck script, including a tsc -b solution's references", () => {
+  const web = WS.find((w) => w.dir === 'apps/web');
+  assert.ok(web.projects.includes('apps/web/tsconfig.json'));
+  assert.ok(web.projects.includes('apps/web/src/contracts'));
+  assert.ok(web.projects.includes('apps/web/src/consent/tsconfig.test.json'));
+  const engine = WS.find((w) => w.dir === 'packages/stylegan-js');
+  assert.ok(
+    engine.projects.includes('packages/stylegan-js/tsconfig.engine.json'),
+    'tsc -p … --incremental',
+  );
+});
+
 test('workflow-run projects follow their paths and their workspace', () => {
   const extra = ['scripts/ci', 'apps/web/src/media'];
   assert.deepEqual(affected(['scripts/ci/run-lanes.ts'], WS, extra).projects, ['scripts/ci']);

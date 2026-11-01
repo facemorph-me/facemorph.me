@@ -52,13 +52,22 @@ export function workspaces(read) {
       ...meta.peerDependencies,
     }).filter((name) => names.has(name));
     const script = meta.scripts?.typecheck ?? '';
-    const projects = script
-      .split('&&')
-      .map((part) => /^\s*tsc -p (\S+)\s*$/.exec(part)?.[1])
-      .filter(Boolean)
-      .map((p) => posix.normalize(`${dir}/${p}`));
+    const projects = script.split('&&').flatMap((part) => {
+      const p = /^\s*tsc -p (\S+)(?:\s+--incremental)?\s*$/.exec(part)?.[1];
+      if (p) return [posix.normalize(`${dir}/${p}`)];
+      const b = /^\s*tsc -b (\S+)\s*$/.exec(part)?.[1];
+      return b ? references(read, posix.normalize(`${dir}/${b}`)) : [];
+    });
     return { dir, name: meta.name, deps, projects, script };
   });
+}
+
+/** The projects a `tsc -b` solution config lists (whole-line comments allowed), as repo paths. */
+function references(read, solution) {
+  const json = JSON.parse(read(solution).replace(/^\s*\/\/.*$/gm, ''));
+  return (json.references ?? []).map((r) =>
+    posix.normalize(`${posix.dirname(solution)}/${r.path}`),
+  );
 }
 
 /** `tsc -p <repo path>` projects the workflows run directly. */

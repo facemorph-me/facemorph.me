@@ -2,6 +2,7 @@
   // ProjectJson (fm-7s3a): no DOM, WebWorker or Node globals. `tsc -p src/project` checks it;
   // tsconfig.test.json adds Node (and the tests' .mjs helpers) for test/project.
   "compilerOptions": {
+    "incremental": true,
     "target": "ES2024",
     "lib": ["ES2024"],
     "types": [],

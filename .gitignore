@@ -22,3 +22,6 @@ dist/
 __pycache__/
 *.pyc
 test-results/
+
+# tsc --incremental state (npm run typecheck)
+*.tsbuildinfo

@@ -2,6 +2,7 @@
   // App contracts (fm-s9n): no DOM, WebWorker or Node globals. `tsc -p src/contracts` checks them;
   // tsconfig.test.json adds Node for the tests under test/contracts.
   "compilerOptions": {
+    "incremental": true,
     "target": "ES2024",
     "lib": ["ES2024"],
     "types": [],

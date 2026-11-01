@@ -1,6 +1,7 @@
 {
   // Build-time code (the matrix, targets, Vite config) and its tests: Node, no DOM.
   "compilerOptions": {
+    "incremental": true,
     "target": "ES2024",
     "lib": ["ES2024"],
     "types": ["node"],

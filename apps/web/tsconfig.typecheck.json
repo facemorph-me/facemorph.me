@@ -1,0 +1,18 @@
+{
+  // `npm run typecheck`: every project below, checked in parallel by `tsc -b`. Each base config sets "incremental",
+  // so an unchanged project is skipped on the next run (state in *.tsbuildinfo beside each config, ignored by Git).
+  "files": [],
+  "references": [
+    { "path": "tsconfig.json" },
+    { "path": "test/facade/tsconfig.json" },
+    { "path": "tsconfig.node.json" },
+    { "path": "tsconfig.e2e.json" },
+    { "path": "src/contracts" },
+    { "path": "src/contracts/tsconfig.test.json" },
+    { "path": "src/project/tsconfig.test.json" },
+    { "path": "src/operations/tsconfig.test.json" },
+    { "path": "src/controller/tsconfig.test.json" },
+    { "path": "src/analytics/tsconfig.test.json" },
+    { "path": "src/consent/tsconfig.test.json" }
+  ]
+}
