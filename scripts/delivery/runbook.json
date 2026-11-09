@@ -581,6 +581,7 @@
     },
     {
       "id": "candidate-source-handover",
+      "done": "30 October 2026: next.facemorph.me deploys from the monorepo main (release.yml) and classic next-site.yml is disabled; the probe now checks that after-state.",
       "title": "Candidate-source handover: next.facemorph.me from classic candidate/next-delivery-20260916 to the monorepo",
       "owner": "operator (release bead fm-s3o)",
       "changesVisitors": true,
@@ -604,7 +605,7 @@
         "type": "gh",
         "path": "repos/facemorph-me/facemorph.me-classic/actions/workflows/next-site.yml",
         "expect": {
-          "state": "active"
+          "state": "disabled_manually"
         }
       }
     },

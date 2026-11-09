@@ -155,7 +155,7 @@ export function entries(runbook) {
       out.push({
         id: `action:${a.id}`,
         command: a.commands.join(' '),
-        target: a.title,
+        target: a.done ? `${a.title} (done: ${a.done})` : a.title,
         dryRun: a.dryRun ?? null,
         noDryRun: a.dryRun ? undefined : 'console or workflow step',
         probe: a.probe,
