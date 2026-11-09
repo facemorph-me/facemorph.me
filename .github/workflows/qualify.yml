@@ -591,7 +591,7 @@ jobs:
           done
       - name: Report
         run: |
-          echo "{\"deploySource\":{\"commit\":\"$COMMIT\"}}" > in/identity.json
+          mkdir -p in && echo "{\"deploySource\":{\"commit\":\"$COMMIT\"}}" > in/identity.json
           args=(--identity in/identity.json --json no-worse-report.json)
           for t in in/timing-final/timing-verdict.json in/timing/timing-verdict.json; do
             if [ -f "$t" ]; then args+=(--timing "$t"); break; fi
