@@ -870,6 +870,28 @@ def capture_capabilities(dev):
     }""")
 
 
+def choose_webgpu(dev):
+    """A WebGPU cell qualifies the WebGPU route as a person chooses it: WebGPU in the Processing mode selector.
+    Auto may pick the CPU where it measured CPU faster (Bifrost Mali, fm-ve6a, 880557f), and the WebGPU cell must
+    still exercise WebGPU; the Auto choice itself is covered by the product's route tests. The page keeps the choice
+    for the face, morph and blend journeys that follow on it. The pinned candidate control keeps its selector inside a
+    collapsed Advanced section and has no CPU-first rule: where no visible selector offers WebGPU, Auto stays, and
+    check_route still requires the WebGPU route after the job."""
+    select = dev.page.get_by_label('Processing mode')
+    if not select.count() or not select.first.is_visible():
+        log('route_choice_skipped', reason='no visible Processing mode selector')
+        return
+    select = select.first
+    if 'webgpu' not in select.locator('option').evaluate_all('o => o.map(x => x.value)'):
+        log('route_choice_skipped', reason='no webgpu option')
+        return
+    if select.input_value() != 'webgpu':
+        select.select_option('webgpu')
+        log('route_chosen', route='webgpu')
+    if select.input_value() != 'webgpu':
+        raise RuntimeError('the Processing mode selector did not take WebGPU')
+
+
 def journey_face(phone, url, cold, word, gpu=None):
     if cold:
         phone.clear_origin(url)  # everything, including downloaded models
@@ -895,6 +917,8 @@ def journey_face(phone, url, cold, word, gpu=None):
     # settles is lost. Wait for the app to report idle, then a short settle.
     phone.wait("document.querySelector('.next-product')?.getAttribute('data-next-busy')!=='true'", 120)
     time.sleep(1.5)
+    if gpu:
+        choose_webgpu(phone)
     before = phone.page.evaluate(FACES, S['faceImage'])
     typed = phone.type_into(S['faceText'], word, 0)
     if typed.lower() != word.lower():  # lost to a re-render: type once more, then judge
