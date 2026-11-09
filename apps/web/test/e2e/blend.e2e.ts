@@ -32,20 +32,14 @@
 //           no overlapping or duplicated tiles; Remove, weight, field, Blend and the result hit by elementFromPoint.
 //   FACEMORPH_DEPLOY_OUT=<dir with deploy-next/> node --test test/e2e/blend.e2e.ts
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
-import {
-  chromium,
-  devices,
-  type Browser,
-  type BrowserContext,
-  type Locator,
-  type Page,
-} from 'playwright';
+import { devices, type BrowserContext, type Locator, type Page } from 'playwright';
 import { startControl, chromiumArgs, ORIGIN, REPO } from '../parity/control-server.ts';
 import { readIdentity } from '../../../../scripts/import/build-next.mjs';
 import { press } from '../support/operate.ts';
+import { launchFreshChromiumProfile } from '../support/browser-profile.ts';
 import { STORE_HOOK } from '../support/face-fixture.ts';
 import { SWEEP_WIDTHS } from '../verify/harness.ts';
 import { readRecovery } from 'stylegan-js';
@@ -102,13 +96,16 @@ const VIEW_HOOK = `window.__blendView = () => {
   };
 };`;
 
+// Each page is a fresh on-disk profile (support/browser-profile.ts), as every real model journey: a private context's
+// quota is a random fraction of RAM, about 850 MB on the 16 GB hosted runner (fm-jzuq), below the photo encoder, so
+// the photo setup there failed and 'blend fill' waited 30 minutes for faces the detector was never set up to find.
 async function newPage(
-  browser: Browser,
   width: number,
   touch: boolean,
   scheme: 'light' | 'dark' = process.env['BLEND_SCHEME'] === 'dark' ? 'dark' : 'light',
 ) {
-  const context: BrowserContext = await browser.newContext({
+  const profile = await launchFreshChromiumProfile({
+    args: [...chromiumArgs, '--disable-features=WebGPU'],
     ...(touch ? devices['iPhone 13'] : {}),
     viewport: { width, height: touch ? 844 : 900 },
     hasTouch: touch,
@@ -118,6 +115,8 @@ async function newPage(
     // BLEND_SCHEME=dark repeats a case in the dark theme.
     colorScheme: scheme,
   });
+  const context: BrowserContext = profile.context;
+  context.on('close', () => rmSync(profile.directory, { recursive: true, force: true }));
   await context.addInitScript(STORE_HOOK);
   await context.addInitScript(TRACE_HOOK);
   await context.addInitScript(VIEW_HOOK);
@@ -250,15 +249,14 @@ async function drag(page: Page, slider: Locator, from: number, to: number, touch
 }
 
 let site: Awaited<ReturnType<typeof startControl>> | null = null;
-let browser: Browser | null = null;
-async function setup(t: test.TestContext): Promise<Browser | null> {
+async function setup(t: test.TestContext): Promise<boolean> {
   if (!existsSync(join(runtime, 'manifest.json'))) {
     const reason = `untested: no acquired runtime at ${runtime}; owner fm-2kse; run on the runtime lane`;
     if (process.env['FACEMORPH_REQUIRE_RUNTIME'] === '1') throw Error(reason);
     t.skip(reason);
-    return null;
+    return false;
   }
-  if (browser) return browser;
+  if (site) return true;
   const artifact = readIdentity(out);
   assert.deepEqual(artifact.findings, []);
   site = await startControl({
@@ -266,12 +264,10 @@ async function setup(t: test.TestContext): Promise<Browser | null> {
     artifact: join(out, 'deploy-next'),
     source: artifact.identity.deploySource.buildId,
   });
-  browser = await chromium.launch({ args: [...chromiumArgs, '--disable-features=WebGPU'] });
   mkdirSync(results, { recursive: true });
-  return browser;
+  return true;
 }
 test.after(async () => {
-  await browser?.close();
   await site?.stop();
 });
 
@@ -286,7 +282,7 @@ test(
       ['phone', 390, true],
     ] as const) {
       const at = (step: string) => join(results, `run-${name}-${step}.png`);
-      const { context, page, errors } = await newPage(b, width, touch);
+      const { context, page, errors } = await newPage(width, touch);
       try {
         await page.goto(ORIGIN);
         await page.locator('section.next-face').nth(1).waitFor();
@@ -658,7 +654,7 @@ test(
           results,
           `output-${name}${process.env['BLEND_SCHEME'] === 'dark' ? '-dark' : ''}-${step}.png`,
         );
-      const { context, page, errors } = await newPage(b, width, touch);
+      const { context, page, errors } = await newPage(width, touch);
       const modelRequests: string[] = [];
       page.on('request', (request) => {
         const path = new URL(request.url()).pathname;
@@ -887,7 +883,7 @@ test(
       ['phone', 390, true],
     ] as const) {
       const at = (step: string) => join(results, `fill-${name}-${step}.png`);
-      const { context, page, errors } = await newPage(b, width, touch);
+      const { context, page, errors } = await newPage(width, touch);
       const modelRequests: string[] = [];
       page.on('request', (request) => {
         const path = new URL(request.url()).pathname;
@@ -933,6 +929,16 @@ test(
         // Faces first: the view asks the photo-setup decision itself, then finds the faces.
         for (const end = Date.now() + 1_800_000; ;) {
           assert.ok(Date.now() < end, 'the faces were found in time');
+          // A photo setup that failed never finds faces (the view says detection did not run): say so now.
+          const setup = await page.evaluate(() => {
+            const d = (
+              (window as unknown as W).__fmStore.getState() as unknown as {
+                Downloads: { phase: string; scope: string; loaded: number; total: number };
+              }
+            ).Downloads;
+            return d.phase === 'failed' && d.scope === 'photo' ? d : null;
+          });
+          assert.equal(setup, null, 'the photo setup the faces need did not fail');
           const ready = await page.evaluate(() => {
             const batch = (
               (window as unknown as W).__fmStore.getState() as unknown as {
@@ -1027,7 +1033,7 @@ test(
     ] as const) {
       for (const scheme of ['light', 'dark'] as const) {
         const name = `${width}-${scheme}`;
-        const { context, page, errors } = await newPage(b, width, touch, scheme);
+        const { context, page, errors } = await newPage(width, touch, scheme);
         try {
           await page.goto(ORIGIN);
           await page.locator('section.next-face').nth(1).waitFor();
@@ -1239,7 +1245,7 @@ test(
       ['desktop', 1280, false],
       ['phone', 390, true],
     ] as const) {
-      const { context, page, errors } = await newPage(b, width, touch);
+      const { context, page, errors } = await newPage(width, touch);
       try {
         await page.goto(ORIGIN);
         await page.locator('section.next-face').nth(1).waitFor();
@@ -1374,7 +1380,7 @@ test(
     if (!b) return;
     for (const width of SWEEP_WIDTHS) {
       const touch = width <= 599;
-      const { context, page, errors } = await newPage(b, width, touch);
+      const { context, page, errors } = await newPage(width, touch);
       try {
         await page.goto(`${ORIGIN}/#blend`);
         await page.locator('.next-blend').waitFor();
