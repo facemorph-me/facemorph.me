@@ -915,10 +915,16 @@ test(
           `${label}: words exact; the photo face is labelled with its file name only`,
         );
         assert.equal(await field(1).inputValue(), photoName);
+        // The field always takes typing (fm-qrse): typing would make it a words face; showing it changes nothing.
         assert.equal(
-          await field(1).isDisabled(),
+          await field(1).isEditable(),
           true,
-          'the restored photo face is not editable text',
+          'the restored photo face still takes typing',
+        );
+        assert.equal(
+          (await model(page)).Inputs[1]!.mode,
+          'project',
+          'showing it keeps the photo face',
         );
         assert.equal(
           await tiles.count(),

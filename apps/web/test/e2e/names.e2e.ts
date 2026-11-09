@@ -623,18 +623,28 @@ test(
           log(`${width}: Browse names from face ${index + 1} of ${count} returned there`);
         }
         if (!touch) {
-          // Keyboard alone: Tab reaches the first face's burger, Enter opens it, arrow keys reach Browse names.
+          // Keyboard alone: Tab reaches the first face's burger, Enter opens it, arrow keys reach Browse names. Tab starts
+          // after the last face operated, so it goes round the whole page (Help, footer, header, Morph | Blend) first.
           await setCount(2);
           await page
             .locator('body')
             .evaluate(() => (document.activeElement as HTMLElement)?.blur?.());
           const burger = tileOf(page, 0).getByRole('button', { name: 'Change mode' });
           let reached = false;
-          for (let i = 0; i < 60 && !reached; i++) {
+          const trail: string[] = [];
+          for (let i = 0; i < 200 && !reached; i++) {
             await page.keyboard.press('Tab');
             reached = await burger.evaluate((e) => e === document.activeElement);
+            trail.push(
+              await page.evaluate(() => {
+                const a = document.activeElement as HTMLElement | null;
+                return a
+                  ? `${a.tagName}[${a.getAttribute('aria-label') ?? a.textContent?.trim().slice(0, 20) ?? ''}]`
+                  : 'none';
+              }),
+            );
           }
-          assert.ok(reached, 'Tab reaches the burger');
+          assert.ok(reached, `Tab reaches the burger; Tab visited ${trail.join(' > ')}`);
           await page.keyboard.press('Enter');
           const item = page.getByRole('menuitem', { name: 'Browse names', exact: true });
           await item.waitFor();

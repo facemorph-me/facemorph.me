@@ -538,8 +538,10 @@ test(
               page.off('request', record);
               assert.ok(asked, 'with the encoder absent, OK asks for the download first');
               assert.deepEqual(network, [], 'no network request before or after declining');
-              // OK committed the confirmed crop to the tile; nothing was encoded or queued.
-              assert.equal(await field.inputValue(), 'cropped.png');
+              // OK committed the confirmed crop to the tile; nothing was encoded or queued. A photo face shows its file
+              // name as the field's hint and keeps the field empty for typing (fm-qrse).
+              assert.equal(await field.getAttribute('placeholder'), 'cropped.png');
+              assert.equal(await field.inputValue(), '');
               assert.notEqual(await tiles.first().getAttribute('data-next-state'), 'filled');
               await page.waitForFunction(
                 () => !document.querySelector('.next-product[data-next-busy=true]'),
