@@ -343,7 +343,7 @@ jobs:
           test "$code" != 1
       - name: Record the failure
         if: failure() || cancelled()
-        run: node scripts/ci/failures.mjs add --dir failures --check timing --bundle bundle-timing --numbers timing-table.txt --repro "$FETCH && npm run release:local -- --artifact /tmp/next-site-${{ env.RUN }} --only timing"
+        run: node scripts/ci/failures.mjs add --dir failures --check timing --bundle bundle-timing-${{ github.run_attempt }} --numbers timing-table.txt --repro "$FETCH && npm run release:local -- --artifact /tmp/next-site-${{ env.RUN }} --only timing"
       - uses: actions/upload-artifact@v4
         if: failure() || cancelled()
         with:
@@ -352,7 +352,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: bundle-timing
+          name: bundle-timing-${{ github.run_attempt }}
           path: |
             timing-verdict.json
             timing-table.txt
@@ -430,7 +430,7 @@ jobs:
             | tee -a "$GITHUB_STEP_SUMMARY" timing-table.txt
       - name: Record the failure
         if: failure() || cancelled()
-        run: node scripts/ci/failures.mjs add --dir failures --check timing --bundle bundle-timing-final --numbers timing-table.txt --repro "$FETCH && npm run release:local -- --artifact /tmp/next-site-${{ env.RUN }} --only timing"
+        run: node scripts/ci/failures.mjs add --dir failures --check timing --bundle bundle-timing-final-${{ github.run_attempt }} --numbers timing-table.txt --repro "$FETCH && npm run release:local -- --artifact /tmp/next-site-${{ env.RUN }} --only timing"
       - uses: actions/upload-artifact@v4
         if: failure() || cancelled()
         with:
@@ -439,7 +439,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: bundle-timing-final
+          name: bundle-timing-final-${{ github.run_attempt }}
           path: |
             timing-verdict.json
             timing-table.txt
@@ -492,13 +492,13 @@ jobs:
           lab() { uv run --quiet --with playwright python lab.py matrix --url "$ORIGIN" --deployed "$GITHUB_WORKSPACE/artifact" "$@"; }
           set +e
           lab --cells eris-webgpu,eris-cpu,eris-firefox-webgpu,eris-firefox-cpu --journey cold-face,warm-face,morph,blend \
-            --keep-camera --label "live-eris-$RUN" > eris.md 2>&1 &
+            --keep-camera --label "live-eris-$RUN-$GITHUB_RUN_ATTEMPT" > eris.md 2>&1 &
           eris_pid=$!
           lab --cells phone-webgpu,phone-cpu --journey cold-face,warm-face,morph,blend,many-faces --phone-budgets-from-pairs cold-face \
-            --label "live-phone-$RUN" > phone.md 2>&1
+            --label "live-phone-$RUN-$GITHUB_RUN_ATTEMPT" > phone.md 2>&1
           phone=$?
           lab --control-url "$CONTROL" --cells phone-cpu,phone-webgpu --journey cold-face \
-            --label "live-pairs-$RUN" > pairs.md 2>&1
+            --label "live-pairs-$RUN-$GITHUB_RUN_ATTEMPT" > pairs.md 2>&1
           pairs=$?
           wait "$eris_pid"
           eris=$?
@@ -509,7 +509,7 @@ jobs:
         if: failure() || cancelled()
         run: |
           adb logcat -d -t 5000 > logcat.txt 2>/dev/null || true
-          cat tools/device-lab/out/*live-*"$RUN"/summary.md > verify-summary.txt 2>/dev/null || true
+          cat tools/device-lab/out/*live-*"$RUN-$GITHUB_RUN_ATTEMPT"/summary.md > verify-summary.txt 2>/dev/null || true
           ORIGIN=$(node -p "require('./hosting/publish-targets.json').targets.next.site.origin")
           gh_fetch="gh run download $RUN -R ${{ github.repository }} -p 'next-site-*' -D /tmp/next-site-$RUN"
           node scripts/ci/failures.mjs add --dir failures --check "live next: six cells and phone pairs" \
@@ -526,7 +526,7 @@ jobs:
         with:
           name: bundle-verify
           path: |
-            tools/device-lab/out/*live-*${{ env.RUN }}/
+            tools/device-lab/out/*live-*${{ env.RUN }}-${{ github.run_attempt }}/
             tools/device-lab/*.md
             logcat.txt
           retention-days: 14
@@ -534,8 +534,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: lab-summaries
-          path: tools/device-lab/out/*live-*${{ env.RUN }}/summary.json
+          name: lab-summaries-${{ github.run_attempt }}
+          path: tools/device-lab/out/*live-*${{ env.RUN }}-${{ github.run_attempt }}/summary.json
           if-no-files-found: ignore
           retention-days: 90
       - name: Leave the devices in their resting state
@@ -562,17 +562,17 @@ jobs:
       - uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          name: bundle-timing
+          name: bundle-timing-${{ github.run_attempt }}
           path: in/timing
       - uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          name: bundle-timing-final
+          name: bundle-timing-final-${{ github.run_attempt }}
           path: in/timing-final
       - uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          name: lab-summaries
+          name: lab-summaries-${{ github.run_attempt }}
           path: in/lab
       # device.yml runs off the same release run; its hosted iOS Simulator and Android emulator lanes fill those
       # cells. Not finished or absent: those cells stay untested, which never blocks.
