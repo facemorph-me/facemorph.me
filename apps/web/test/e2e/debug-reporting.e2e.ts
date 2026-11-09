@@ -984,11 +984,14 @@ test(
                     PreparingFaces: Set<string>;
                     Faces: { id: string }[];
                     Inputs: { id: string; mode: string }[];
+                    Error: string | null;
                   };
                 };
               }
             ).__elmish.model;
             const photo = m.Inputs.find((i) => i.mode === 'photo');
+            // A failed photo encode ends the wait; the assertion below reports it.
+            if (!m.Busy && /photo encoder|Encode image/.test(m.Error ?? '')) return true;
             return (
               !m.Busy &&
               m.PreparingFaces.size === 0 &&

@@ -714,6 +714,11 @@ test(
           null,
           { timeout: 900_000, polling: 1000 },
         );
+        assert.doesNotMatch(
+          String(((await model(page)) as { Error?: string | null }).Error ?? ''),
+          /photo encoder|Encode image/,
+          `${label}: the confirmed photo encoded`,
+        );
         if ((await model(page)).Faces.length < 2) {
           await operate(page.getByRole('button', { name: 'Generate faces' }));
           await acceptDownloads();
