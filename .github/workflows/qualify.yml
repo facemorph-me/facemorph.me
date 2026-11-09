@@ -192,8 +192,11 @@ jobs:
           retention-days: 14
 
   engine:
-    needs: meta
-    if: needs.meta.outputs.engine == 'true'
+    # After the timing jobs, like the cells: run beside them, the numerics' browser routes skewed the face pairs (in
+    # runs 42566030505 and 42573199241 every face pair measured during engine numerics was slow and noisy, and every
+    # pair after it passed, with photo and morph still running).
+    needs: [meta, timing]
+    if: ${{ !cancelled() && needs.meta.result == 'success' && needs.meta.outputs.engine == 'true' }}
     name: engine numerics on the verified runtime (full31, CPU and browser routes)
     # Real hardware: the browser routes need eris's memory (a 16 GB hosted runner's in-memory storage quota cannot hold
     # the 1.1 GB encoder: QuotaExceededError in run 40488827815) and the WebGPU test needs the device-lab runner's GPU
