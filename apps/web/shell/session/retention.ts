@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
 // On-origin recovery. Storage keys, records, hash checks and byte budgets match last-result.mjs.
 import { openOriginals, digest } from '../../src/Next/browser/originals.mjs';
+import { releaseShardSpace } from '../../src/Next/Assets/shard-store.mjs';
 import type { MorphKind } from '../facade/records.ts';
 import { keepOnlyWords, rememberWords, type FaceWords } from './session-words.ts';
 import { retainedExportDigests, type StillExportDigests } from '../../src/media/export-names.ts';
@@ -431,12 +432,24 @@ export async function rememberSession(
         error instanceof Error ? error.name : 'Error',
       );
       if (!isCurrent()) return false;
-      await store.put(SESSION, {
+      const withoutVideo = {
         ...record,
         video: null,
         videoSha256: null,
         videoExportDigest: undefined,
-      });
+      };
+      try {
+        await store.put(SESSION, withoutVideo);
+      } catch (again) {
+        // The faces outrank model bytes, which download again (fm-jzuq): a small origin quota (a private window's is
+        // a fraction of RAM) fills with a photo encoder that cannot be kept anyway, and the faces were then lost on
+        // reload. Room for them comes from the model storage; any other failure stays a failure.
+        if (!(again instanceof Error) || again.name !== 'QuotaExceededError') throw again;
+        const freed = await releaseShardSpace(2 * bytes + 8 * 1024 * 1024).catch(() => 0);
+        if (!freed || !isCurrent()) throw again;
+        console.warn('Last session write made room from model storage:', freed);
+        await store.put(SESSION, withoutVideo);
+      }
     }
     retainWords(faces);
     return true;

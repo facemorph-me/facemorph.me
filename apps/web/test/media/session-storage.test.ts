@@ -56,6 +56,35 @@ const SOURCES: Record<string, () => { body: string; type: string }> = {
     body: readFileSync(web('src/Next/browser/originals.mjs'), 'utf8'),
     type: 'text/javascript',
   }),
+  // retention.ts makes room from model storage through the bridge's re-export of the package's shard store.
+  '/src/Next/Assets/shard-store.mjs': () => ({
+    body: readFileSync(web('src/Next/Assets/shard-store.mjs'), 'utf8'),
+    type: 'text/javascript',
+  }),
+  '/packages/browser-model-manager/src/cache/shard-store.ts': () => ({
+    body: stripTypeScriptTypes(
+      readFileSync(
+        new URL(
+          '../../../../packages/browser-model-manager/src/cache/shard-store.ts',
+          import.meta.url,
+        ),
+        'utf8',
+      ),
+    ),
+    type: 'text/javascript',
+  }),
+  '/packages/browser-model-manager/src/acquisition/phases.ts': () => ({
+    body: stripTypeScriptTypes(
+      readFileSync(
+        new URL(
+          '../../../../packages/browser-model-manager/src/acquisition/phases.ts',
+          import.meta.url,
+        ),
+        'utf8',
+      ),
+    ),
+    type: 'text/javascript',
+  }),
   '/plain.png': () => ({
     body: readFileSync(
       new URL('../../../../packages/stylegan-js/test/vectors/plain.png', import.meta.url),
@@ -388,6 +417,60 @@ test('a real IndexedDB quota failure retries the session without video and keeps
           line.includes('QuotaExceededError'),
       ),
     );
+  } finally {
+    await l.browser.close();
+  }
+});
+
+// fm-jzuq: a private window's quota is a fraction of RAM (about 850 MB on a 16 GB machine), and the photo encoder
+// filled it, so every session write failed and the faces were gone on reload. A real Chromium quota, real OPFS model
+// units and real IndexedDB: the faces are kept, room coming from the newest model units; the oldest unit stays.
+test('a quota the model storage filled still keeps the faces, freeing the newest model units', async (t) => {
+  const l = await launch(t);
+  if (!l) return;
+  try {
+    const page = await l.context.newPage();
+    await page.goto(`${ORIGIN}/`);
+    const cdp = await l.context.newCDPSession(page);
+    await cdp.send('Storage.overrideQuotaForOrigin', {
+      origin: ORIGIN,
+      quotaSize: 48 * 1024 * 1024,
+    });
+    await cdp.send('Runtime.enable');
+    const messages: string[] = [];
+    cdp.on('Runtime.consoleAPICalled', (event) => messages.push(JSON.stringify(event)));
+    const result = await page.evaluate(`(async()=>{
+      const dir=await (await navigator.storage.getDirectory()).getDirectoryHandle('checkface-model-shards-v1',{create:true});
+      // Filled to the brim, as the encoder leaves it: 4 MiB units, then smaller ones into what is left.
+      const names=[];let refused=null;
+      for(const size of [4*1024*1024,256*1024,16*1024])
+        for(let i=0,full=false;i<64&&!full;i++){
+          const name=String(names.length).padStart(64,'0');
+          try{const w=await (await dir.getFileHandle(name,{create:true})).createWritable();await w.write(new Uint8Array(size));await w.close();names.push(name);}
+          catch(error){refused=error.name;full=true;await dir.removeEntry(name).catch(()=>{});}
+          await new Promise(r=>setTimeout(r,5));
+        }
+      const {lr,faces,settings}=await ${FACES(2)};
+      const saved=await lr.rememberSession({ids:faces.map(f=>f.id),faces,settings,project:{}});
+      const restored=await lr.readSession();
+      const left=[];for await(const entry of dir.values())left.push(entry.name);
+      return {refused,written:names.length,saved,faces:restored?.faces.length ?? null,
+        oldestKept:left.includes(names[0]),newestKept:left.includes(names.at(-1)),left:left.length};
+    })()`);
+    const r = result as Record<string, unknown>;
+    assert.equal(r['refused'], 'QuotaExceededError', 'the model units filled the real quota');
+    assert.deepEqual(
+      {
+        saved: r['saved'],
+        faces: r['faces'],
+        oldestKept: r['oldestKept'],
+        newestKept: r['newestKept'],
+      },
+      { saved: true, faces: 2, oldestKept: true, newestKept: false },
+      `${JSON.stringify(result)}\n${messages.join('\n')}`,
+    );
+    assert.ok((r['left'] as number) < (r['written'] as number));
+    assert.ok(messages.some((line) => line.includes('made room from model storage')));
   } finally {
     await l.browser.close();
   }

@@ -179,6 +179,56 @@ export interface StorageLike {
   }>;
 }
 
+/** A directory handle that can also list its entries (OPFS `values()`). */
+interface ListableDirectory extends DirectoryLike {
+  values(): AsyncIterable<{ readonly kind: string; readonly name: string }>;
+}
+
+/**
+ * Gives back at least `bytes` of model storage, newest units first, and returns what it freed (fm-jzuq). For the
+ * visitor's own records (their faces) when the origin is full: model units download again, faces do not. A small
+ * origin quota (a private window, whose quota is a fraction of RAM) fills with the photo encoder, which then cannot
+ * be kept anyway; its newest units are the ones that did not fit, so the face model written before them stays. A
+ * removed unit reads as evicted, which the cache already handles.
+ */
+export async function releaseShardSpace(
+  bytes: number,
+  { storage = browserGlobals.navigator?.storage }: { storage?: StorageLike | undefined } = {},
+): Promise<number> {
+  if (typeof storage?.getDirectory !== 'function' || !(bytes > 0)) return 0;
+  let dir: ListableDirectory;
+  try {
+    dir = (await (
+      await storage.getDirectory()
+    ).getDirectoryHandle(SHARD_DIRECTORY)) as ListableDirectory;
+  } catch {
+    return 0; // no model storage on this origin
+  }
+  if (typeof dir.values !== 'function') return 0;
+  const units: { name: string; size: number; at: number }[] = [];
+  for await (const entry of dir.values()) {
+    if (entry.kind !== 'file') continue;
+    try {
+      const file = await (await dir.getFileHandle(entry.name)).getFile();
+      units.push({ name: entry.name, size: file.size, at: file.lastModified });
+    } catch {
+      /* removed meanwhile */
+    }
+  }
+  units.sort((a, b) => b.at - a.at || (a.name < b.name ? -1 : 1));
+  let freed = 0;
+  for (const unit of units) {
+    if (freed >= bytes) break;
+    try {
+      await dir.removeEntry(unit.name);
+      freed += unit.size;
+    } catch {
+      /* in use by a write in progress, or already gone */
+    }
+  }
+  return freed;
+}
+
 export async function openShardStore({
   storage = browserGlobals.navigator?.storage,
   readOnly = false,
