@@ -17,9 +17,11 @@
 // Exit 1 when any row is `worse`. `untested` rows never fail the run and never count as passing.
 //
 // Usage: node ops/stats/field-not-worse.mjs [--prom http://localhost:9090] [--host next]
-//   [--after-start 2026-10-30T00:00:00Z] [--after-end now] [--before-end now] [--min 20] [--json out.json]
+//   [--snapshot ops/stats/snapshots/fm-web-<date>.jsonl.gz] [--after-start 2026-10-30T00:00:00Z] [--after-end now] [--before-end now] [--min 20] [--json out.json]
 // Run on triton (Prometheus listens on localhost:9090 there) or through an SSH tunnel to it.
 import { writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
 import { pathToFileURL } from 'node:url';
 
 export const PLATFORMS = ['desktop', 'android', 'ios'];
@@ -95,19 +97,49 @@ async function instant(prom, query, time) {
   return j.data.result.map((s) => ({ m: s.metric, v: Number(s.value[1]) }));
 }
 
-/** Counter values per label set at `time`, over a long lookback so frozen or sparse series still read. */
-async function counters(prom, metric, app, host, by, time) {
+/**
+ * Counter values per label set at `time`, over a long lookback so frozen or sparse series still read. The source is
+ * a live Prometheus URL (string) or a loaded snapshot (ops/stats/snapshot.py; `loadSnapshot`), read the same way.
+ */
+async function counters(src, metric, app, host, by, time) {
+  if (typeof src !== 'string') return snapshotCounters(src, metric, app, host, by, time);
   const q = `sum by (${by.join(',')}) (last_over_time(${metric}{app="${app}",host="${host}"}[90d]))`;
-  return instant(prom, q, time);
+  return instant(src, q, time);
+}
+
+/** A snapshot file (gzipped JSON lines: header, then { labels, points: [[t, "v"], ...] } change points). */
+export function loadSnapshot(path) {
+  const lines = gunzipSync(readFileSync(path)).toString('utf8').trim().split('\n');
+  const head = JSON.parse(lines[0]);
+  if (head.schema !== 'facemorph.stats-snapshot/1')
+    throw new Error(`unknown snapshot schema ${head.schema}`);
+  return { head, series: lines.slice(1).map((l) => JSON.parse(l)) };
+}
+
+/** Pure: the snapshot's answer to the same sum-by-last-value query at `time`. */
+export function snapshotCounters(snap, metric, app, host, by, time) {
+  const out = new Map();
+  for (const { labels, points } of snap.series) {
+    if (labels.__name__ !== metric || labels.app !== app || labels.host !== host) continue;
+    let v = null;
+    for (const [t, x] of points) if (t <= time) v = Number(x);
+    if (v === null) continue;
+    const m = Object.fromEntries(by.map((l) => [l, labels[l]]));
+    const k = key(m, by);
+    const row = out.get(k) ?? { m, v: 0 };
+    row.v += v;
+    out.set(k, row);
+  }
+  return [...out.values()];
 }
 
 const key = (m, by) => by.map((l) => m[l] ?? '').join('|');
 
 /** Growth between two instants per label set (absent at the start reads as 0; counter resets are not expected). */
-async function growth(prom, metric, app, host, by, start, end) {
+async function growth(src, metric, app, host, by, start, end) {
   const [e, s] = await Promise.all([
-    counters(prom, metric, app, host, by, end),
-    start == null ? Promise.resolve([]) : counters(prom, metric, app, host, by, start),
+    counters(src, metric, app, host, by, end),
+    start == null ? Promise.resolve([]) : counters(src, metric, app, host, by, start),
   ]);
   const base = new Map(s.map((x) => [key(x.m, by), x.v]));
   return e.map((x) => ({ m: x.m, v: Math.max(0, x.v - (base.get(key(x.m, by)) ?? 0)) }));
@@ -125,19 +157,30 @@ function histogram(rows, pred) {
   return [...by.entries()].sort((a, b) => a[0] - b[0]);
 }
 
-export async function collect({ prom, host, afterStart, afterEnd, beforeEnd }) {
+export async function collect({
+  prom,
+  snapshot,
+  host,
+  beforeApp = 'candidate',
+  beforeStart = null,
+  beforeEnd,
+  afterApp = 'monorepo',
+  afterStart,
+  afterEnd,
+}) {
+  const src = snapshot ? loadSnapshot(snapshot) : prom;
   const jobsBy = ['platform', 'action', 'route', 'outcome'];
   const durBy = ['platform', 'action', 'route', 'le'];
   const ttfrBy = ['platform', 'cache', 'le'];
   const side = (app, start, end) =>
     Promise.all([
-      growth(prom, 'fm_web_jobs_total', app, host, jobsBy, start, end),
-      growth(prom, 'fm_web_job_duration_seconds_bucket', app, host, durBy, start, end),
-      growth(prom, 'fm_web_time_to_first_result_seconds_bucket', app, host, ttfrBy, start, end),
+      growth(src, 'fm_web_jobs_total', app, host, jobsBy, start, end),
+      growth(src, 'fm_web_job_duration_seconds_bucket', app, host, durBy, start, end),
+      growth(src, 'fm_web_time_to_first_result_seconds_bucket', app, host, ttfrBy, start, end),
     ]).then(([jobs, dur, ttfr]) => ({ jobs, dur, ttfr }));
   const [before, after] = await Promise.all([
-    side('candidate', null, beforeEnd),
-    side('monorepo', afterStart, afterEnd),
+    side(beforeApp, beforeStart, beforeEnd),
+    side(afterApp, afterStart, afterEnd),
   ]);
   return { before, after };
 }
@@ -216,6 +259,10 @@ export function table(rows) {
 function args(argv) {
   const o = {
     prom: 'http://localhost:9090',
+    snapshot: null,
+    beforeApp: 'candidate',
+    beforeStart: null,
+    afterApp: 'monorepo',
     host: 'next',
     afterStart: '2026-10-30T00:00:00Z',
     afterEnd: 'now',
@@ -229,7 +276,13 @@ function args(argv) {
     o[k] = k === 'min' ? Number(argv[i + 1]) : argv[i + 1];
   }
   const t = (s) => (s === 'now' ? Date.now() / 1000 : Date.parse(s) / 1000);
-  return { ...o, afterStart: t(o.afterStart), afterEnd: t(o.afterEnd), beforeEnd: t(o.beforeEnd) };
+  return {
+    ...o,
+    beforeStart: o.beforeStart == null ? null : t(o.beforeStart),
+    afterStart: t(o.afterStart),
+    afterEnd: t(o.afterEnd),
+    beforeEnd: t(o.beforeEnd),
+  };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

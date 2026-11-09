@@ -84,3 +84,56 @@ test('quantile: clearly slower is worse; faster within the before bound reads ok
 test('quantile: few jobs is untested', () => {
   assert.equal(compareQuantile(hist([5]), hist([500]), 0.5, 20).verdict, 'untested');
 });
+
+test('snapshot reads like the live query: last value at or before the time, summed by the requested labels', async () => {
+  const { snapshotCounters } = await import('./field-not-worse.mjs');
+  const snap = {
+    series: [
+      {
+        labels: {
+          __name__: 'fm_web_jobs_total',
+          app: 'monorepo',
+          host: 'next',
+          platform: 'ios',
+          route: 'cpu',
+          outcome: 'completed',
+          action: 'face',
+        },
+        points: [
+          [100, '1'],
+          [200, '5'],
+          [300, '9'],
+        ],
+      },
+      {
+        labels: {
+          __name__: 'fm_web_jobs_total',
+          app: 'monorepo',
+          host: 'next',
+          platform: 'ios',
+          route: 'webgpu',
+          outcome: 'completed',
+          action: 'face',
+        },
+        points: [[150, '2']],
+      },
+      {
+        labels: {
+          __name__: 'fm_web_jobs_total',
+          app: 'candidate',
+          host: 'next',
+          platform: 'ios',
+          route: 'cpu',
+          outcome: 'completed',
+          action: 'face',
+        },
+        points: [[100, '7']],
+      },
+    ],
+  };
+  const at = (t) =>
+    snapshotCounters(snap, 'fm_web_jobs_total', 'monorepo', 'next', ['platform'], t);
+  assert.deepEqual(at(50), []);
+  assert.deepEqual(at(250), [{ m: { platform: 'ios' }, v: 7 }]);
+  assert.deepEqual(at(1e9), [{ m: { platform: 'ios' }, v: 11 }]);
+});
