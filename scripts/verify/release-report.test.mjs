@@ -148,4 +148,9 @@ test('hosted lane reports from device.yml fill the Simulator and emulator cells,
     lanes: [lane('ios-simulator-safari', false)],
   });
   assert.equal(bad.handover, 'blocked');
+  const timedOut = {
+    ...lane('ios-simulator-safari', false),
+    runs: [{ ok: false, error: 'simctl launch timed out' }],
+  };
+  assert.equal(hostedCells([timedOut])['ios-simulator'].reason, 'simctl launch timed out');
 });

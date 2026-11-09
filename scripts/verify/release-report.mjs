@@ -129,7 +129,9 @@ export function hostedCells(lanes) {
       reason:
         verdict === 'passed'
           ? `${l.device ?? l.browser ?? l.lane}; ${l.runs?.length ?? 0} run(s); route ${routes[0] ?? 'unrecorded'}`
-          : (l.reason ?? (l.runs ?? []).flatMap((r) => r.errors ?? []).join('; ')) || 'lane failed',
+          : (l.reason ??
+              (l.runs ?? []).flatMap((r) => r.errors ?? (r.error ? [r.error] : [])).join('; ')) ||
+            'lane failed',
       commit: l.artifact?.source?.commit ?? null,
       sourceTreeSha256: l.artifact?.source?.sourceTreeSha256 ?? null,
     };
