@@ -124,6 +124,25 @@ async function open(
   await context.addInitScript(STORE_HOOK);
   await context.addInitScript(() => {
     (globalThis as { __FACEMORPH_OPCTL_TRACE__?: unknown[] }).__FACEMORPH_OPCTL_TRACE__ = [];
+    // Evidence only: the product shows a closed-set message, so the worker's own error (name and message) is kept here
+    // for a failure record. Every worker the page starts is observed; nothing it sends is changed.
+    const seen: { name: string | undefined; message: string | undefined }[] = [];
+    (globalThis as { __FACEMORPH_WORKER_ERRORS__?: unknown[] }).__FACEMORPH_WORKER_ERRORS__ = seen;
+    const Native = globalThis.Worker;
+    if (typeof Native !== 'function') return;
+    globalThis.Worker = class extends Native {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options);
+        this.addEventListener('message', (event: MessageEvent) => {
+          const data = event.data as { type?: string; error?: { name?: string; message?: string } };
+          if (data?.type === 'error' && data.error)
+            seen.push({ name: data.error.name, message: data.error.message });
+        });
+        this.addEventListener('error', (event: ErrorEvent) =>
+          seen.push({ name: 'WorkerError', message: event.message }),
+        );
+      }
+    };
   });
   if (init) await context.addInitScript(init);
   const page = await context.newPage();
@@ -543,6 +562,9 @@ async function reach(s: Session, index: number): Promise<Locator> {
           .Inputs.map((x) => x.id);
         const r = t?.getBoundingClientRect();
         if (r && r.left >= s.left - 0.5 && r.right <= s.right + 0.5) return 0;
+        // A rendered tile is measured where it is; only a tile outside the rendered window is estimated from its
+        // index, so a small pitch difference over 100+ faces cannot leave the scroll short of the tile.
+        if (r) return r.left + r.width / 2 - (s.left + s.width / 2);
         const centre = ids.indexOf(faceId) * pitch + 48 + f.width / 2 - strip.clientWidth / 2;
         return centre - strip.scrollLeft;
       }, id);
@@ -2336,6 +2358,8 @@ test(
                     })),
                     faces: state.Faces.map(({ id }) => id),
                     trace: w.__FACEMORPH_OPCTL_TRACE__,
+                    workerErrors: (w as unknown as { __FACEMORPH_WORKER_ERRORS__?: unknown[] })
+                      .__FACEMORPH_WORKER_ERRORS__,
                   };
                 });
                 record('one-face-encode-operation', {
@@ -2344,7 +2368,11 @@ test(
                   modelRequests: s.models,
                   diagnostics,
                 });
-                assert.equal(encoded.error, null, 'real photo encode has no product error');
+                assert.equal(
+                  encoded.error,
+                  null,
+                  `real photo encode has no product error; worker errors: ${JSON.stringify(encoded.workerErrors)}`,
+                );
                 assert.deepEqual(
                   encoded.inputs.map(({ id }) => id),
                   [only.id],
