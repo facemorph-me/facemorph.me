@@ -150,11 +150,25 @@ test(
         fetchArtifact({ ...PINNED, artifactName: 'next-site-nope' }, join(out, 'n')),
       ),
     };
+    // Past its retention a run's missing name and its purged artifact are indistinguishable, so pickArtifact reports
+    // ArtifactExpired by design (its pure cases above pin both ages). The pinned run passed 14 days on 6 Nov 2026.
+    const res = await fetch(
+      `https://api.github.com/repositories/${PINNED.sourceRepoId}/actions/runs/${PINNED.runId}`,
+      {
+        headers: {
+          authorization: `Bearer ${process.env['GITHUB_TOKEN'] ?? process.env['GH_TOKEN']}`,
+          accept: 'application/vnd.github+json',
+        },
+      },
+    );
+    assert.equal(res.status, 200, 'the pinned run is readable');
+    const created = ((await res.json()) as { created_at: string }).created_at;
+    const aged = (Date.now() - Date.parse(created)) / 86_400_000 > 14;
     assert.deepEqual(codes, {
       repository: 'RunNotFoundInRepository',
       commit: 'CommitMismatch',
       workflow: 'WorkflowMismatch',
-      artifact: 'ArtifactNotFound',
+      artifact: aged ? 'ArtifactExpired' : 'ArtifactNotFound',
     });
     rmSync(out, { recursive: true, force: true });
   },
