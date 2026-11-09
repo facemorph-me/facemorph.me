@@ -25,11 +25,20 @@ runners are explicitly untested, while real executed failures require repair.
 All six local adapters exist; adapter support alone is not release qualification.
 The release Beads track remaining exact-artifact evidence. Production promotion is separate.
 
-**https://next.facemorph.me still comes from classic's candidate branch**, in
-[facemorph.me-classic](https://github.com/facemorph-me/facemorph.me-classic).
-This repo takes over after release qualification. Production promotion is a separate
-operator decision. Classic keeps its history and Docker/PyTorch work; new development
-and [research](autoresearch/README.md) happen here.
+**https://next.facemorph.me has been built and deployed from this repository since
+30 October 2026** (fm-s3o). Every push to main deploys it after `check.yml` and the
+release go/no-go. Rollback to an earlier artifact is a dispatched release run
+([release guide](docs/dev/release.md)).
+
+**https://facemorph.me** still serves the classic app, and `api.facemorph.me` and
+`checkface.facemorph.me` still answer. Promoting this repository's artifact to
+facemorph.me and retiring the hosted API are the operator's cutover decision
+(fm-4gw7). That decision reads the per-platform-class "no worse than the candidate"
+report on one named artifact (fm-6rcm). Rollback stays available afterwards. The
+real-visitor statistics (fm-js8i) watch for regressions after cutover. The classic
+repository, [facemorph.me-classic](https://github.com/facemorph-me/facemorph.me-classic),
+keeps its history and Docker/PyTorch work; new development and
+[research](autoresearch/README.md) happen here.
 
 The web-only release preserves CPU/WebGPU selection, bounded fallback, mobile/iPhone
 paths and integrated performance optimizations. Native packages and WebGL execution
