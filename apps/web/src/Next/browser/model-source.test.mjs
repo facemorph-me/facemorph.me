@@ -112,6 +112,19 @@ test('uncached continuation still verifies the digest and spends corrupt receive
  await assertTransientOnly(source,env);
 });
 
+test('a write NotFoundError after a full origin (Chrome) is a storage refusal: acquire degrades, bytes continue uncached',async t=>{
+ const gone=new DOMException('A requested file or directory could not be found at the time an operation was processed.','NotFoundError');
+ const env=environment(t,{writeError:gone});
+ const source=await env.source();
+ const grant=approve(asset.size*3);
+ await assert.rejects(source.acquire(asset,request(grant)),{name:'NotFoundError'});
+ assert.equal(source.uncached,true,'the refusal leaves the source uncached');
+ assert.equal(env.degraded.length,1);
+ assert.deepEqual(await source.bytes(asset,request(grant)),payload,'the encode continues on verified uncached bytes');
+ assert.deepEqual(env.requests,[asset.url,asset.url]);
+ await assertTransientOnly(source,env);
+});
+
 test('background acquire reports a native write refusal, then refuses further background downloads',async t=>{
  const quota=new DOMException('quota full','QuotaExceededError');
  const env=environment(t,{writeError:quota});

@@ -1,9 +1,10 @@
 import {createBrowserModelCache,acquireUncachedBytes} from '../Assets/model-cache.mjs';
 
 // Download/permission/cancellation errors must keep their ordinary meaning. Only a native
-// storage refusal permits this source to continue without durable model storage.
+// storage refusal permits this source to continue without durable model storage. Chrome reports a
+// write into a full origin's file system after a quota refusal as NotFoundError, so that is one too.
 const storageFailure=error=>['QuotaExceededError','SecurityError','NotAllowedError',
- 'NotReadableError','InvalidStateError','UnknownError'].includes(error?.name)||
+ 'NotReadableError','NotFoundError','InvalidStateError','UnknownError'].includes(error?.name)||
  error?.message==='Persistent Cache Storage unavailable';
 
 /** The execution worker's source. Uncached bytes belong to the current caller only:

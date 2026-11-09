@@ -281,7 +281,12 @@ async function encodeStream(tensor,id,qualifiedEncoderSha256,confirmedCropId){
  // reads every step from verified local storage and the encode itself issues no request. A device without durable
  // model storage keeps the candidate's bounded behaviour: each shard is read as its step needs it.
  cache ||= await modelSource();
- if(!cache.uncached)for(const step of config.steps){await acquireAsset(step);budget.progress(false);}
+ // A storage refusal while committing (quota: a device or private window without room for the encoder) leaves the
+ // source uncached; the encode then continues on that bounded path instead of failing as if the encoder were absent.
+ if(!cache.uncached)for(const step of config.steps){
+  try{await acquireAsset(step);}catch(error){if(!cache.uncached)throw error;break;}
+  budget.progress(false);
+ }
  const local=asset=>cache.uncached?bytes(asset,id,true):cache.has(asset).then(held=>{if(!held)throw Object.assign(Error('An encoder shard left the model cache after it was acquired.'),{code:'cache-miss'});return bytes(asset,id,true);});
  const reader={allowRepair:false,compute,read:asset=>local(asset).then(value=>({ok:true,value}),error=>{if(error?.name==='GrantRefused')throw error;return {ok:false,error:{code:error.code||'local-read',message:String(error.message||error),sha256:asset.sha256}};})};
  // The runtime is the small half: three modules and a wasm binary, none of which are weights.
