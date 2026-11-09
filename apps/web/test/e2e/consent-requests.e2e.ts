@@ -1906,6 +1906,11 @@ test(
         const page = await context.newPage();
         const errors: string[] = [];
         page.on('pageerror', (error) => errors.push(error.message));
+        // The operation trace (fm-vbj7), read only to say why when the face is not made (fm-jzuq: a hosted run said
+        // 'Cancelled.' at phone width and nothing more).
+        await context.addInitScript(() => {
+          (globalThis as { __FACEMORPH_OPCTL_TRACE__?: unknown[] }).__FACEMORPH_OPCTL_TRACE__ = [];
+        });
         await context.addInitScript(() => {
           const seen: string[] = ((globalThis as { __statusSeen?: string[] }).__statusSeen = []);
           new MutationObserver(() => {
@@ -2002,7 +2007,18 @@ test(
             after.usage <= after.quota && after.usage < 158 * 1024 * 1024,
             `${name}: storage refused`,
           );
-          assert.ok(filled, `${name}: the face is made`);
+          const trace = filled
+            ? []
+            : await page.evaluate(() =>
+                (
+                  (globalThis as { __FACEMORPH_OPCTL_TRACE__?: Record<string, unknown>[] })
+                    .__FACEMORPH_OPCTL_TRACE__ ?? []
+                ).filter((e) => !/^(permit|reservation)-/.test(String(e['type']))),
+              );
+          assert.ok(
+            filled,
+            `${name}: the face is made\n${JSON.stringify({ statuses: statuses.slice(-12), trace })}`,
+          );
           assert.ok(saved, `${name}: Save works`);
           const kept = statuses.find((line) =>
             line.includes('could not keep the downloaded model'),
