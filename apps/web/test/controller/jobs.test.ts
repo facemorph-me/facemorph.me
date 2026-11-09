@@ -227,3 +227,11 @@ test('acquisition failures are plain, count kept and remaining bytes, and keep T
   assert.equal(other.Error, 'The local generation engine stopped.');
   assert.equal(isAcquisitionFailure(other.Error), false);
 });
+test('a repeated notice (a second Save of the same file) leaves the state as it is, so nothing re-renders (fm-6rcm)', () => {
+  const said = reduce(msg('Notice', 'Your file is ready to save.'), state);
+  assert.equal(said?.state.Status, 'Your file is ready to save.');
+  const again = reduce(msg('Notice', 'Your file is ready to save.'), said!.state);
+  assert.equal(again?.state, said!.state);
+  assert.deepEqual(again?.effects, []);
+  assert.equal(reduce(msg('Notice', ''), said!.state)?.state.Status, '');
+});

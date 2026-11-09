@@ -117,12 +117,19 @@ export function useResultFile(source: unknown, files: ResultFiles | undefined) {
     rename: (name: string) => {
       if (!current?.file || !api.current) return;
       const file = api.current.rename(current.file, name);
-      setState({ source, format, attempt, file });
+      // Saving under the name already shown keeps the same file: no state change, no re-render.
+      if (!sameFile(file, current.file)) setState({ source, format, attempt, file });
       return file;
     },
   };
 }
 export type ResultFileState = ReturnType<typeof useResultFile>;
+
+function sameFile(a: PreparedResult, b: PreparedResult): boolean {
+  return (
+    a.blob === b.blob && a.filename === b.filename && a.mime === b.mime && a.digest === b.digest
+  );
+}
 
 function canShare(file: PreparedResult | undefined): boolean {
   if (!file || !navigator.share || !navigator.canShare) return false;
@@ -179,7 +186,8 @@ export function ResultActions({
       onNotice?.('The file could not be handed over. Your result is still ready; try Save.');
     try {
       const named = state.rename(name) ?? file;
-      setEdit({ digest: named.digest, name: named.filename });
+      if (edit?.digest !== named.digest || edit.name !== named.filename)
+        setEdit({ digest: named.digest, name: named.filename });
       // No await before the adapter's share call: user activation belongs to this click.
       void (sharing ? files.share(named) : files.save(named)).then(onNotice, failed);
     } catch {

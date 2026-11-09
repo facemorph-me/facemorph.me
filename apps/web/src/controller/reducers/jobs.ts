@@ -358,7 +358,10 @@ export function jobs(message: Msg, state: State, facts: JobFacts = {}): Transiti
       };
     }
     case 'Notice':
-      return { state: { ...state, Status: message.args[0] }, effects: [] };
+      // A repeated notice (a second Save of the same file) changes nothing, so nothing re-renders.
+      return message.args[0] === state.Status
+        ? unchanged(state)
+        : { state: { ...state, Status: message.args[0] }, effects: [] };
     case 'Retry':
       return state.Busy
         ? unchanged(state)
