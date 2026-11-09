@@ -45,7 +45,7 @@ test('every live npm-test file runs exactly once across all scaffold shards, wit
   assert.deepEqual(actual, expected);
   assert.equal(new Set(actual).size, actual.length);
   assert.ok(suites.some(({ prefix }) => prefix[1] === 'test/run.mjs'));
-  assert.equal(suites.filter(({ prefix }) => prefix[0] === 'python3').length, 3);
+  assert.equal(suites.filter(({ prefix }) => prefix[0] === 'python3').length, 4); // compiled UI, intercept, autoresearch, stats snapshot
   for (let shard = 1; shard <= SHARDS; shard++) assert.ok(shardInventory(suites, shard).length);
 });
 

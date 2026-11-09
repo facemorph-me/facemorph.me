@@ -530,10 +530,67 @@ jobs:
             tools/device-lab/*.md
             logcat.txt
           retention-days: 14
+      # The cutover report (no-worse-report) reads every cell's summary, pass or fail.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lab-summaries
+          path: tools/device-lab/out/*live-*${{ env.RUN }}/summary.json
+          if-no-files-found: ignore
+          retention-days: 90
       - name: Leave the devices in their resting state
         if: always()
         working-directory: tools/device-lab
         run: uv run --quiet --with playwright python lab.py recover || true
+
+  # ---- the "no worse than the candidate" report the cutover decision reads (fm-6rcm, fm-4gw7) ----------------------
+  # One verdict per platform class on this run's artifact, joined from the timing verdict (the second wave's when it
+  # ran) and the lab cells. Informational: the checks above already fail the run; this says what they mean per class.
+  no-worse-report:
+    needs: [meta, timing-gate, timing-final, verify]
+    if: ${{ always() && needs.meta.result == 'success' }}
+    name: no worse than the candidate, per platform class
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.COMMIT }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: bundle-timing
+          path: in/timing
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: bundle-timing-final
+          path: in/timing-final
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: lab-summaries
+          path: in/lab
+      - name: Report
+        run: |
+          echo "{\"deploySource\":{\"commit\":\"$COMMIT\"}}" > in/identity.json
+          args=(--identity in/identity.json --json no-worse-report.json)
+          for t in in/timing-final/timing-verdict.json in/timing/timing-verdict.json; do
+            if [ -f "$t" ]; then args+=(--timing "$t"); break; fi
+          done
+          # Single passes before the phone pairs: the worst verdict per cell wins either way.
+          while IFS= read -r f; do args+=(--lab "$f"); done < <(find in/lab -name summary.json | sort)
+          node scripts/verify/release-report.mjs "${args[@]}" | tee no-worse-report.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: no-worse-report
+          path: |
+            no-worse-report.json
+            no-worse-report.md
+          retention-days: 90
 
   # ---- one place for every failure ------------------------------------------------------------------------------
   report:
