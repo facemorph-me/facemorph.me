@@ -574,6 +574,18 @@ jobs:
         with:
           name: lab-summaries
           path: in/lab
+      # device.yml runs off the same release run; its hosted iOS Simulator and Android emulator lanes fill those
+      # cells. Not finished or absent: those cells stay untested, which never blocks.
+      - name: Hosted lanes from device.yml
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run=$(gh run list -R "$GITHUB_REPOSITORY" -w device.yml -c "$COMMIT" -s completed -L 1 --json databaseId -q '.[0].databaseId')
+          [ -n "$run" ] || { echo "no completed device.yml run for $COMMIT"; exit 0; }
+          for lane in ios-simulator-safari android-emulator-chrome; do
+            gh run download "$run" -R "$GITHUB_REPOSITORY" -n "lane-$lane" -D "in/lanes/$lane" || true
+          done
       - name: Report
         run: |
           echo "{\"deploySource\":{\"commit\":\"$COMMIT\"}}" > in/identity.json
@@ -583,6 +595,7 @@ jobs:
           done
           # Single passes before the phone pairs: the worst verdict per cell wins either way.
           while IFS= read -r f; do args+=(--lab "$f"); done < <(find in/lab -name summary.json | sort)
+          while IFS= read -r f; do args+=(--lane "$f"); done < <(find in/lanes -name '*-safari.json' -o -name '*-chrome.json' 2>/dev/null | sort)
           node scripts/verify/release-report.mjs "${args[@]}" | tee no-worse-report.md >> "$GITHUB_STEP_SUMMARY" || true
       - uses: actions/upload-artifact@v4
         with:

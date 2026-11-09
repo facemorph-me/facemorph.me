@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildReport, labCells, timingCell, markdown } from './release-report.mjs';
+import { buildReport, hostedCells, labCells, timingCell, markdown } from './release-report.mjs';
 
 const C = 'c0ffee';
 const identity = { deploySource: { commit: C, sourceTreeSha256: 'tree' } };
@@ -118,4 +118,34 @@ test('an available hosted failure blocks; a hosted pass is claimed', () => {
   });
   assert.ok(good.claims.includes('iOS (Simulator)'));
   assert.ok(!good.claims.includes('iOS (physical iPhone)')); // never inferred from the Simulator
+});
+
+test('hosted lane reports from device.yml fill the Simulator and emulator cells, bound to the commit', () => {
+  const lane = (name, ok, commit = C) => ({
+    lane: name,
+    ok,
+    device: 'iPhone 16 Pro',
+    routes: { cold: 'Ready · this device’s CPU.' },
+    runs: [{ ok }],
+    artifact: { source: { commit, sourceTreeSha256: 'tree-from-lane' } },
+  });
+  assert.equal(hostedCells([lane('macos-chrome', true)])['macos-chrome'], undefined);
+  const labs = [{ cells: ALL.map((id) => cell(id, true)) }];
+  const r = buildReport({
+    identity: { deploySource: { commit: C } },
+    timing: pass,
+    labs,
+    lanes: [lane('ios-simulator-safari', true), lane('android-emulator-chrome', true, 'beef')],
+  });
+  assert.equal(r.classes['iOS (Simulator)'], 'passed');
+  assert.equal(r.cells.find((x) => x.id === 'android-emulator').verdict, 'untested');
+  assert.equal(r.sourceTreeSha256, 'tree-from-lane');
+  assert.equal(r.handover, 'allowed');
+  const bad = buildReport({
+    identity,
+    timing: pass,
+    labs,
+    lanes: [lane('ios-simulator-safari', false)],
+  });
+  assert.equal(bad.handover, 'blocked');
 });

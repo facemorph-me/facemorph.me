@@ -4,6 +4,8 @@
 //   --lab     summary.json from tools/device-lab/lab.py matrix runs (the six cells; the phone pairs against the
 //             pinned control). Repeatable.
 //   --hosted  JSON { "<cell id>": { verdict, reason } } for hosted iOS Simulator / Android emulator cells. Optional.
+//   --lane    a hosted lane report from device.yml (tools/device-lab/hosted.py; ios-simulator-safari,
+//             android-emulator-chrome). Repeatable; other lanes are ignored.
 //   --identity next-site-identity.json of the artifact (commit and digest).
 // The verdict rule is scripts/verify/not-worse.mjs releaseVerdict: a class is claimed only when every listed cell of
 // it passed; required local cells (eris, the P30 Pro) block when they did not pass; an explicitly unavailable hosted
@@ -108,14 +110,47 @@ export function labCells(docs) {
   return out;
 }
 
+/** device.yml lane names for the hosted cells this report lists. */
+export const HOSTED_LANES = {
+  'ios-simulator-safari': 'ios-simulator',
+  'android-emulator-chrome': 'android-emulator',
+};
+
+/** Pure: hosted lane reports to cell results, each keeping the commit and source tree its artifact was built from. */
+export function hostedCells(lanes) {
+  const out = {};
+  for (const l of lanes) {
+    const id = HOSTED_LANES[l.lane];
+    if (!id) continue;
+    const verdict = l.ok ? 'passed' : l.status === 'untested' ? 'untested' : 'failed';
+    const routes = Object.values(l.routes ?? {}).filter(Boolean);
+    out[id] = {
+      verdict,
+      reason:
+        verdict === 'passed'
+          ? `${l.device ?? l.browser ?? l.lane}; ${l.runs?.length ?? 0} run(s); route ${routes[0] ?? 'unrecorded'}`
+          : (l.reason ?? (l.runs ?? []).flatMap((r) => r.errors ?? []).join('; ')) || 'lane failed',
+      commit: l.artifact?.source?.commit ?? null,
+      sourceTreeSha256: l.artifact?.source?.sourceTreeSha256 ?? null,
+    };
+  }
+  return out;
+}
+
 /**
  * Pure: the whole report. A lab cell measured on another commit's artifact than the identity's is untested: rows
  * from different artifacts are never merged into one verdict.
  */
-export function buildReport({ identity, timing, labs = [], hosted = {} }) {
+export function buildReport({ identity, timing, labs = [], hosted = {}, lanes = [] }) {
   const commit = identity?.deploySource?.commit ?? null;
   const results = {};
-  for (const [id, r] of Object.entries(labCells(labs)))
+  const lane = hostedCells(lanes);
+  // The source tree comes from the identity, else from evidence measured on this same commit.
+  const tree =
+    identity?.deploySource?.sourceTreeSha256 ??
+    Object.values(lane).find((r) => r.commit === commit && r.sourceTreeSha256)?.sourceTreeSha256 ??
+    null;
+  for (const [id, r] of [...Object.entries(labCells(labs)), ...Object.entries(lane)])
     results[id] =
       commit && r.commit !== commit
         ? {
@@ -129,7 +164,7 @@ export function buildReport({ identity, timing, labs = [], hosted = {} }) {
   const v = releaseVerdict({ listed: LISTED, results });
   return {
     commit,
-    sourceTreeSha256: identity?.deploySource?.sourceTreeSha256 ?? null,
+    sourceTreeSha256: tree,
     timingBuildDigest: t?.digest ?? null,
     ...v,
   };
@@ -169,6 +204,7 @@ function main(argv) {
     else if (k === '--timing') o.timing = read();
     else if (k === '--lab') o.labs.push(read());
     else if (k === '--hosted') o.hosted = read();
+    else if (k === '--lane') (o.lanes ??= []).push(read());
     else if (k === '--json') json = v;
     else throw new Error(`unknown argument ${k}`);
   }
