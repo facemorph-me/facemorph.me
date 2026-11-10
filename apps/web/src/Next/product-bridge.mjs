@@ -436,6 +436,9 @@ async function pumpDownloads(){
   }
   analytics.modelsDownloaded({scope,outcome:result.started&&result.acquired===result.assets?'completed':active?'interrupted':'failed',sizeMb:planned/1048576,durationMs:performance.now()-began});
   if(active){downloads.phase='waiting';announceDownloads();return;}
+  // The browser would not store the models (a private window's small quota, or full storage): retrying cannot help, and
+  // faces and photos still work by downloading what each one needs (fm-jzuq). Said once, never as a failed download.
+  if(result.uncached){await refreshInventory();if(!current())return;Object.assign(downloads,{phase:'not-kept',modelNotKept:true});wanted.clear();announceDownloads();return;}
   if(!result.started||result.acquired!==result.assets){downloads.phase='failed';wanted.clear();announceDownloads();await refreshInventory();return;}
   await refreshInventory();
   if(!current())return;

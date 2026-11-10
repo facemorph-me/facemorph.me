@@ -2024,7 +2024,7 @@ test(
             line.includes('could not keep the downloaded model'),
           );
           assert.ok(kept, `${name}: the page says the model was not kept`);
-          assert.match(kept, /browser storage is full/);
+          assert.match(kept, /storage is full, or this is a private window/);
           assert.doesNotMatch(kept, /cannot run|not supported|capab/i);
           assert.deepEqual(errors, []);
         } finally {
@@ -2032,6 +2032,176 @@ test(
         }
       }
     } finally {
+      await site.stop();
+    }
+  },
+);
+
+// fm-jzuq: a private (incognito) window, whose storage quota Chromium sets to a fraction of RAM (850-900 MB on a 16 GB
+// machine), smaller than the 1.19 GB photo encoder. Two photos still become faces, the page says once and plainly that
+// the encoder could not be kept (never "the download stopped"), and the faces are there after a reload. On a machine
+// whose private quota fits the encoder this is untested; eris reproduces a 16 GB machine by preloading a sysconf shim
+// that reports 16 GB of RAM to Chromium (LD_PRELOAD), with nothing else changed.
+test(
+  'private window: photos become faces without keeping the encoder, the page says so, and faces survive reload',
+  { timeout: 1_500_000 },
+  async (t) => {
+    if (!existsSync(join(runtime, 'manifest.json'))) {
+      const reason = `untested: no acquired runtime at ${runtime}; owner fm-jzuq`;
+      if (process.env['FACEMORPH_REQUIRE_RUNTIME'] === '1') throw Error(reason);
+      t.skip(reason);
+      return;
+    }
+    const artifact = readIdentity(out);
+    assert.deepEqual(artifact.findings, []);
+    const site = await startControl({
+      runtime,
+      artifact: join(out, 'deploy-next'),
+      source: artifact.identity.deploySource.buildId,
+    });
+    const browser = await chromium.launch({ args: [...chromiumArgs, '--disable-features=WebGPU'] });
+    mkdirSync(results, { recursive: true });
+    try {
+      const context = await browser.newContext({
+        viewport: { width: 1280, height: 900 },
+        ignoreHTTPSErrors: true,
+      });
+      await context.addInitScript(() => {
+        const seen: string[] = ((globalThis as { __statusSeen?: string[] }).__statusSeen = []);
+        new MutationObserver(() => {
+          const text = [...document.querySelectorAll('[role="status"], [role="alert"]')]
+            .map((el) => el.textContent ?? '')
+            .join(' | ');
+          if (text && seen.at(-1) !== text && seen.length < 1000) seen.push(text);
+        }).observe(document, { subtree: true, childList: true, characterData: true });
+      });
+      const page = await context.newPage();
+      const errors: string[] = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      const operate = async (control: Locator) =>
+        assert.ok((await press(page, control, {})).inside, `${control}`);
+      await page.goto(ORIGIN);
+      const cdp = await context.newCDPSession(page);
+      const { quota } = (await cdp.send(
+        'Storage.getUsageAndQuota' as never,
+        { origin: ORIGIN } as never,
+      )) as unknown as { quota: number };
+      const encoder = 1_193_411_879; // the photo setup's bytes, as this runtime's download reports them
+      console.log(`fm-jzuq private window quota ${quota}`);
+      if (quota >= encoder) {
+        t.skip(`untested: this machine's private-window quota (${quota}) holds the encoder`);
+        return;
+      }
+      for (const control of [
+        page.locator('.next-model-toast').getByRole('button', { name: 'Not now' }),
+        page.getByRole('button', { name: 'Ask me later' }),
+      ])
+        if (
+          await control.waitFor({ timeout: 5000 }).then(
+            () => true,
+            () => false,
+          )
+        )
+          await operate(control);
+      await chooseCpu(page);
+      const tiles = page.locator('section.next-face');
+      await tiles.nth(1).waitFor();
+      const fixture = join(REPO, 'tests/crop/fixtures/non-square.jpg');
+      const status = page.locator('.next-status').first();
+      /** One photo chosen on face `index`, every download decision approved, until its face is drawn or an error. */
+      const photo = async (index: number, name: string) => {
+        const tile = tiles.nth(index);
+        await operate(tile.getByRole('button', { name: 'Change mode', exact: true }));
+        const entry = page.getByRole('menuitem', { name: 'Encode image', exact: true });
+        await entry.evaluate(async (element) => {
+          const panel = element.closest('.MuiPaper-root');
+          await Promise.allSettled(
+            (panel?.getAnimations({ subtree: true }) ?? []).map((a) => a.finished),
+          );
+        });
+        const choosing = page.waitForEvent('filechooser');
+        await operate(entry);
+        await (await choosing).setFiles(fixture);
+        const accept = page.locator('.next-download-accept');
+        const ok = page.locator('.next-encode-ok');
+        const decisions: string[] = [];
+        const deadline = Date.now() + 600_000;
+        for (;;) {
+          assert.ok(Date.now() < deadline, `${name}: the face is made in time`);
+          if (await accept.isVisible()) {
+            decisions.push(await page.locator('.next-download-dialog').innerText());
+            await operate(accept).catch(() => {}); // it may close as the next step opens
+          } else if ((await ok.isVisible()) && (await ok.isEnabled()))
+            await operate(ok).catch(() => {});
+          const error = await page
+            .locator('.next-error')
+            .first()
+            .innerText({ timeout: 100 })
+            .catch(() => '');
+          assert.equal(error, '', `${name}: no error`);
+          const drawn = await tile.evaluate((el) => {
+            const image = el.querySelector('.next-face-img');
+            return (
+              el.getAttribute('data-next-state') === 'photo' &&
+              !document.querySelector('.next-product[data-next-busy=true]') &&
+              (image instanceof HTMLCanvasElement
+                ? image.dataset['faceDrawn'] === 'true'
+                : image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)
+            );
+          });
+          if (drawn) break;
+          await page.waitForTimeout(500);
+        }
+        await page.screenshot({ path: join(results, `private-${name}.png`) });
+        // Every further decision names its size: a fresh approval, never a dead end.
+        for (const decision of decisions) assert.match(decision, /\d[\d,]* MB/);
+        return { decisions, status: await status.innerText() };
+      };
+      const first = await photo(0, 'first');
+      const toast = await page
+        .locator('.next-model-toast')
+        .innerText()
+        .catch(() => '');
+      const second = await photo(1, 'second');
+      const seen = await page.evaluate(
+        () => (globalThis as { __statusSeen?: string[] }).__statusSeen ?? [],
+      );
+      const { usage } = (await cdp.send(
+        'Storage.getUsageAndQuota' as never,
+        { origin: ORIGIN } as never,
+      )) as unknown as { usage: number };
+      await page.waitForTimeout(2000); // the session save settles
+      await page.reload();
+      await tiles.nth(1).waitFor();
+      await page.waitForFunction(
+        () =>
+          [...document.querySelectorAll('section.next-face')]
+            .slice(0, 2)
+            .every((tile) => tile.querySelector('.next-face-img')),
+        null,
+        { timeout: 60_000 },
+      );
+      const restored = await tiles.evaluateAll((all) =>
+        all.map((tile) => tile.getAttribute('data-next-state')),
+      );
+      await page.screenshot({ path: join(results, 'private-reload.png') });
+      console.log(
+        'fm-jzuq private window',
+        JSON.stringify({ quota, usage, first, toast, second, restored }),
+      );
+      assert.ok(usage < encoder, 'the window really could not keep the encoder');
+      assert.match(first.status, /could not keep the downloaded model/);
+      assert.match(first.status, /private window/);
+      assert.match(toast, /^This browser can't keep the photo encoder/);
+      assert.ok(
+        !seen.some((line) => line.includes('The download stopped')),
+        'a refused store is never a stopped download',
+      );
+      assert.deepEqual(restored.slice(0, 2), ['project', 'project'], 'both faces after reload');
+      assert.deepEqual(errors, []);
+      await context.close();
+    } finally {
+      await browser.close();
       await site.stop();
     }
   },

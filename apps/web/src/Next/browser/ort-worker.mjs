@@ -235,9 +235,9 @@ async function floats(asset,id){const b=await bytes(asset,id);return new Float32
  */
 async function prefetchRoute(id,scope='route'){
  cache ||= await modelSource();
- if(cache.uncached)return {provider,scope,assets:0,acquired:0,...budget.totals()};
+ if(cache.uncached)return {provider,scope,assets:0,acquired:0,uncached:true,...budget.totals()};
  const list=scope==='photo'?await photoAssets():routeAssets();
- if(cache.uncached)return {provider,scope,assets:0,acquired:0,...budget.totals()};
+ if(cache.uncached)return {provider,scope,assets:0,acquired:0,uncached:true,...budget.totals()};
  if(scope==='photo')planAsset(list);else planRoute();
  await probePlanned();budget.progress(false);
  let assets=0,acquired=0;
@@ -246,7 +246,8 @@ async function prefetchRoute(id,scope='route'){
   try{await acquireAsset(asset);acquired++;budget.progress(false);}
   catch{break;} // offline, evicted mid-run, or out of quota: the real run will say so properly
  }
- return {provider,scope,assets,acquired,...budget.totals()};
+ // uncached: the browser refused to store them (quota, a private window), so finishing can never help (fm-jzuq).
+ return {provider,scope,assets,acquired,uncached:!!cache.uncached,...budget.totals()};
 }
 // The engine reads only through this: the worker's verified bytes (acquired under the bridge's grant), errors as thrown.
 const reader={allowRepair:false,compute,read:async asset=>({ok:true,value:await bytes(asset,currentId)})};

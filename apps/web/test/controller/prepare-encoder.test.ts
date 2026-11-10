@@ -189,6 +189,8 @@ test('photo readiness or a photo failure settles setup; route notifications reta
   for (const downloads of [
     { ...state.Downloads, phase: 'done', photoReady: true },
     { ...state.Downloads, phase: 'failed', scope: 'photo' },
+    // A browser that will not store the encoder (a private window, fm-jzuq) also settles setup.
+    { ...state.Downloads, phase: 'not-kept', scope: 'photo' },
     { ...state.Downloads, phase: 'downloading', photoReady: true },
   ]) {
     const settled = reduce(msg('DownloadsChanged', downloads), active)!;

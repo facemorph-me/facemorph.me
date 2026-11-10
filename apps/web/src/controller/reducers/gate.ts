@@ -185,7 +185,8 @@ export function gate(message: Msg, state: State): Transition | null {
       const { EncoderSetup: _owner, ...withoutOwner } = state;
       const settled =
         state.EncoderSetup === 'active' &&
-        (downloads.photoReady || (downloads.phase === 'failed' && downloads.scope === 'photo'));
+        (downloads.photoReady ||
+          (['failed', 'not-kept'].includes(downloads.phase) && downloads.scope === 'photo'));
       const next = {
         ...(settled ? withoutOwner : state),
         Downloads: downloads,

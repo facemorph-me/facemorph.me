@@ -239,7 +239,7 @@ export function Toasts({ state, dispatch, report }: Pick<Props, 'state' | 'dispa
   const model =
     !state.ModelToastHidden &&
     downloads.known &&
-    ['downloading', 'waiting', 'failed', 'done'].includes(downloads.phase);
+    ['downloading', 'waiting', 'failed', 'not-kept', 'done'].includes(downloads.phase);
   const failure = failureToastShown(state, report);
   let content: ReactNode = null;
   let actions: ReactNode = null;
@@ -285,6 +285,21 @@ export function Toasts({ state, dispatch, report }: Pick<Props, 'state' | 'dispa
           </span>
         );
         break;
+      case 'not-kept':
+        // The browser refused to store the models (a private window, or full storage): they still work, uncached.
+        content =
+          downloads.scope === 'photo' ? (
+            <span>
+              <strong>This browser can't keep the photo encoder. </strong>Photos still work, but
+              each one downloads it again.
+            </span>
+          ) : (
+            <span>
+              <strong>This browser can't keep the face model. </strong>Faces still work, but it
+              downloads again when needed.
+            </span>
+          );
+        break;
       case 'done':
         content = (
           <span>
@@ -304,7 +319,7 @@ export function Toasts({ state, dispatch, report }: Pick<Props, 'state' | 'dispa
           </span>
         );
     }
-    actions = ['downloading', 'waiting', 'done'].includes(downloads.phase) ? (
+    actions = ['downloading', 'waiting', 'not-kept', 'done'].includes(downloads.phase) ? (
       <Button color="inherit" onClick={() => dispatch(msg('HideModelToast'))}>
         Hide
       </Button>

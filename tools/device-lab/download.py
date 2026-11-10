@@ -46,7 +46,8 @@ PACKAGE_PARTS = ('runtime', 'mapping', 'synthesis', 'average', 'noise', 'encoder
 HOSTS = ('next.facemorph.me', 'models.facemorph.me')
 # The toast's own words for each phase (src/Next/Product.fs, model toast). Sizes are binary megabytes.
 PHASES = (('Downloading the face model', 'route'), ('Downloading the photo encoder', 'photo'),
-          ('Download paused', 'waiting'), ('The download stopped', 'failed'), ('Ready.', 'done'))
+          ('Download paused', 'waiting'), ('The download stopped', 'failed'),
+          ("This browser can't keep", 'not-kept'), ('Ready.', 'done'))
 SIZE = r'([\d.]+) (MB|GB)'
 MIB = 1024 * 1024
 

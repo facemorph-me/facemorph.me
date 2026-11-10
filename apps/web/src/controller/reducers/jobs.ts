@@ -31,7 +31,7 @@ export function acquisitionFailure(error: string): string | null {
 }
 /** A result made while the model could not be saved (fm-9kr8): said as storage, never as a device limit. */
 export const MODEL_NOT_KEPT =
-  'This device could not keep the downloaded model because browser storage is full, so it downloads again next time.';
+  'This browser could not keep the downloaded model (its storage is full, or this is a private window), so it downloads again next time.';
 export const ACQUISITION_DAMAGED =
   'A downloaded model file arrived damaged, so it was not used. Parts already downloaded are kept.';
 export const ACQUISITION_STORAGE =
