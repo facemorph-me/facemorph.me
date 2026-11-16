@@ -135,7 +135,8 @@ function progress(event){
   (jobCounts.framesTotal>1?recordFrame:recordFace)(event.elapsedMs);
  const check=deviceCheckLine(stage,event);
  if(check===null)return;
- if(check){listener({jobId:currentJob,stage:'canary',text:check,fraction:Number.isFinite(fraction)?fraction:0});return;}
+ // The fraction is the share of the check under way (always above zero), so the bar can move through it.
+ if(check){listener({jobId:currentJob,stage:'canary',text:check,fraction:(deviceCheck.step-0.5)/deviceCheck.total});return;}
  const units=jobCounts.framesTotal>1?{done:jobCounts.framesDone,total:jobCounts.framesTotal}
             :jobCounts.facesTotal>1?{done:jobCounts.facesDone,total:jobCounts.facesTotal}:null;
  // Operator direction, 21 September, and this is a release gate: while a morph is rendering the

@@ -6,7 +6,7 @@ import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Slider from '@mui/material/Slider';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ResultActions, useResultFile, type ResultFiles } from './ResultActions.tsx';
 
 /** The scrubbed frame, drawn in the video's own box (fm-2if3); its rail is {@link MorphRail}, under Use Slider. */
@@ -103,8 +103,34 @@ export interface VideoSlotProps {
   readonly disclosure?: string | undefined;
 }
 
+/**
+ * A morph that just finished is brought into view. The video renders below the faces, so on a phone it finished
+ * entirely off-screen and on a laptop its controls and Save sat below the fold, under a "Done" line. Only when the
+ * person is still watching the run (Create morph is on screen): someone who scrolled away to read is left alone. A
+ * restored video, or one that was already there when a face finished, never moves the page.
+ */
+function useRevealFinished(slot: RefObject<HTMLDivElement | null>, url: string, busy: boolean) {
+  const startedWith = useRef<string | null>(null);
+  useEffect(() => {
+    if (busy) {
+      startedWith.current ??= url;
+      return;
+    }
+    const before = startedWith.current;
+    startedWith.current = null;
+    if (before === null || !url || url === before || !slot.current) return;
+    const action = document.querySelector<HTMLElement>('.next-primary-action');
+    const box = action?.getBoundingClientRect();
+    if (!box || box.bottom < 0 || box.top > window.innerHeight) return;
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    slot.current.scrollIntoView({ block: 'nearest', behavior: still ? 'auto' : 'smooth' });
+  }, [slot, url, busy]);
+}
+
 export function VideoSlot(p: VideoSlotProps) {
   const [size, setSize] = useState<{ url: string; w: number; h: number } | null>(null);
+  const slot = useRef<HTMLDivElement | null>(null);
+  useRevealFinished(slot, p.videoUrl, p.busy);
   const resultFile = useResultFile(p.videoUrl || null, p.resultFiles);
   useEffect(() => {
     if (!p.videoUrl) return;
@@ -120,7 +146,7 @@ export function VideoSlot(p: VideoSlotProps) {
       video.load();
     };
   }, [p.videoUrl]);
-  if (p.videoUrl === '') return <div className="next-video-slot" />;
+  if (p.videoUrl === '') return <div className="next-video-slot" ref={slot} />;
   const frames = p.sliderFrames ?? [];
   const framesAvailable = frames.length > 0;
   // A restored video remains playable when its optional scrub frames were evicted.
@@ -129,7 +155,7 @@ export function VideoSlot(p: VideoSlotProps) {
     <MorphSlider frames={frames} dim={p.videoDim} frame={p.sliderFrame} />
   ) : null;
   return (
-    <div className="next-video-slot">
+    <div className="next-video-slot" ref={slot}>
       {/* The slider's frame takes the video's place and box, above Use Slider, and its rail goes below the checkbox,
           so ticking Use Slider moves neither the picture nor the checkbox (fm-2if3). */}
       {showSlider ? (

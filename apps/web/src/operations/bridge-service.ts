@@ -349,6 +349,12 @@ export function createOperationService(
     const morph = item.handle.request.kind === 'morph';
     if (['route-attempt', 'route-admitted', 'model-loaded'].includes(p.stage)) {
       if (hasPhase(bar, 'acquisition')) bar.finish('acquisition');
+    } else if (p.stage === 'canary' && p.fraction > 0 && hasPhase(bar, 'compute')) {
+      // The device check on a new device (product-bridge deviceCheckLine) is most of the first face's compute:
+      // seven reference syntheses before the face's own. The bar used to sit at a quarter for all of it.
+      if (hasPhase(bar, 'acquisition')) bar.finish('acquisition');
+      if (hasPhase(bar, 'load')) bar.finish('load');
+      bar.advance('compute', 'steps', 0.85 * Math.min(1, p.fraction));
     } else if (p.stage === 'face' || p.stage === 'synthesis') {
       if (hasPhase(bar, 'acquisition')) bar.finish('acquisition');
       if (hasPhase(bar, 'load')) bar.finish('load');

@@ -32,7 +32,8 @@ export function Header() {
           <h1
             className="title "
             style={{
-              fontSize: 'clamp(2.5rem, 12vw, 4rem)',
+              // Small enough that the name fits on a 320 px phone; at 12vw it broke as "facemorph.m / e".
+              fontSize: 'clamp(2rem, 10vw, 4rem)',
               display: 'flex',
               flexWrap: 'wrap',
               justifyContent: 'center',
@@ -45,7 +46,7 @@ export function Header() {
               inheritViewBox
               style={{ fontSize: '1em' }}
             />
-            <span>{SITE_NAME}</span>
+            <span style={{ whiteSpace: 'nowrap' }}>{SITE_NAME}</span>
           </h1>
         </a>
       </div>

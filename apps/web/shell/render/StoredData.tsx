@@ -1,6 +1,6 @@
 // The Help line for what this app keeps on the device (fm-5hww, defect 22): the stored size of the saved faces, the
 // last session and this tab's words, and one Clear for exactly those. Clear keeps the downloaded models and the
-// slider setting (app-storage.ts). The size is read when the line first scrolls into view and again after Clear.
+// slider setting (app-storage.ts). The size is read whenever the line scrolls into view and again after Clear.
 import { useEffect, useRef, useState } from 'react';
 import { clearAppStorage, storedSize } from '../session/app-storage.ts';
 
@@ -15,22 +15,25 @@ export function StoredData() {
   const [size, setSize] = useState<number | null>(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
-  const measure = () =>
-    storedSize().then(
-      (s) => setSize(s.total),
-      () => setSize(0),
+  // Only the latest reading lands: a look at the line during Clear must not bring back the old size.
+  const reading = useRef(0);
+  const measure = () => {
+    const id = ++reading.current;
+    return storedSize().then(
+      (s) => id === reading.current && setSize(s.total),
+      () => id === reading.current && setSize(0),
     );
+  };
   useEffect(() => {
     const el = line.current;
     if (!el || typeof IntersectionObserver !== 'function') {
       void measure();
       return;
     }
+    // Measured each time the line comes into view, not only the first: faces made after a first look made the
+    // figure stale ("1 KB" beside a session of saved faces).
     const seen = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) {
-        seen.disconnect();
-        void measure();
-      }
+      if (entries.some((e) => e.isIntersecting)) void measure();
     });
     seen.observe(el);
     return () => seen.disconnect();
