@@ -118,6 +118,56 @@ test('arrival restoration after an edit of the initial face is ignored', () => {
   const edited = reduce(msg('Edit', 'face-1', 'changed'), state)!.state;
   assert.equal(reduce(msg('RestoredLast', { ...output, restored: true }), edited)!.state, edited);
 });
+test('arrival restoration keeps the arrival words and preview of a slot the session kept without a face', () => {
+  // A return visit after generating only the second face: the session holds face-2's face and both ids.
+  const face = {
+    id: 'face-2',
+    raw: false,
+    url: 'blob:restored-face-2',
+    label: 'Restored face',
+    sourceMode: 'project',
+    sourceFile: null,
+  };
+  const next = reduce(
+    msg('RestoredLast', {
+      ...output,
+      restored: true,
+      faces: [face],
+      inputs: [
+        { id: 'face-1', mode: 'text', value: '', file: null },
+        { id: 'face-2', mode: 'project', value: 'Restored face', file: null },
+      ],
+    }),
+    state,
+  )!.state;
+  assert.deepEqual(
+    next.Inputs[0],
+    state.Inputs[0],
+    'face-1 keeps "hello", not an empty invalid field',
+  );
+  assert.equal(next.Inputs[1]!.mode, 'project');
+  assert.deepEqual(next.Faces, [face]);
+  assert.deepEqual(
+    next.Previews.map((preview) => preview.id),
+    ['face-1'],
+    'the hello preview still shows on face-1',
+  );
+  // A restored face replaces its slot's preview; slots beyond the arrival's stay empty as before.
+  const both = reduce(
+    msg('RestoredLast', {
+      ...output,
+      restored: true,
+      faces: [{ ...face, id: 'face-1' }],
+      inputs: [
+        { id: 'face-1', mode: 'project', value: 'Restored face', file: null },
+        { id: 'face-3', mode: 'text', value: '', file: null },
+      ],
+    }),
+    state,
+  )!.state;
+  assert.deepEqual(both.Previews, []);
+  assert.equal(both.Inputs[1]!.value, '');
+});
 test('completion filters removed faces and refuses video for changed morph settings', () => {
   const started = reduce(msg('Run', 'morph'), state)!.state;
   const changed = { ...started, Frames: 8 };

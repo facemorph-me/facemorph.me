@@ -76,6 +76,31 @@ export function restored(state: State, result: Output, clearPreviews = true): St
     Fps: result.fps,
   };
 }
+/**
+ * The arrival restore. The session keeps every slot's id but only the faces that were made, so a slot that was never
+ * generated (the "hello" preview a first visit shows, or the dated second face) came back as an empty word field:
+ * marked invalid before the visitor typed anything, its preview gone and Create morph disabled under a "Welcome
+ * back" line. Such a slot keeps this arrival's own words and preview instead; restored faces are unchanged.
+ */
+function arrivalRestored(state: State, result: Output): State {
+  const made = new Set(result.faces.map((face) => face.id));
+  const inputs = result.inputs.map((input) =>
+    made.has(input.id) || input.mode !== 'text' || input.value !== ''
+      ? input
+      : (state.Inputs.find((item) => item.id === input.id) ?? input),
+  );
+  return {
+    ...restored(state, { ...result, inputs }),
+    Previews: state.Previews.filter(
+      (preview) =>
+        !made.has(preview.id) &&
+        inputs.some(
+          (input) =>
+            input.id === preview.id && input.mode === preview.mode && input.value === preview.value,
+        ),
+    ),
+  };
+}
 export function cancelled(state: State, jobId: number): Transition {
   return jobId !== state.JobId
     ? unchanged(state)
@@ -189,7 +214,7 @@ export function jobs(message: Msg, state: State, facts: JobFacts = {}): Transiti
       if (state.JobId !== 0 || state.RunInputs.length > 0 || state.Inputs[0]?.value !== 'hello')
         return unchanged(state);
       return {
-        state: restored(state, result),
+        state: arrivalRestored(state, result),
         effects: state.UseSlider && result.videoUrl ? [{ type: 'sliderFrames' }] : [],
       };
     }
@@ -470,9 +495,12 @@ function progressed(progress: Progress, state: State, facts: JobFacts): Transiti
       Status: progress.text,
       Fraction: progress.fraction,
       ActiveFace: progress.stage === 'face' && progress.face ? progress.face : state.ActiveFace,
-      Remaining: facts.progress
-        ? remainingText(state, facts.measurements ?? emptyMeasurements, facts.progress)
-        : '',
+      // The device check runs several syntheses before the first face; a per-face estimate during it
+      // said "about 3 seconds remaining" for most of a minute.
+      Remaining:
+        facts.progress && progress.stage !== 'canary'
+          ? remainingText(state, facts.measurements ?? emptyMeasurements, facts.progress)
+          : '',
     },
     effects: [],
   };

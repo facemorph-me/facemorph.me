@@ -133,6 +133,9 @@ function progress(event){
  // correctness pass, none of which repeat per face. The runtime already reports the real figure.
  if(stage==='synthesis-complete'&&Number.isFinite(event.elapsedMs)&&event.elapsedMs>0)
   (jobCounts.framesTotal>1?recordFrame:recordFace)(event.elapsedMs);
+ const check=deviceCheckLine(stage,event);
+ if(check===null)return;
+ if(check){listener({jobId:currentJob,stage:'canary',text:check,fraction:Number.isFinite(fraction)?fraction:0});return;}
  const units=jobCounts.framesTotal>1?{done:jobCounts.framesDone,total:jobCounts.framesTotal}
             :jobCounts.facesTotal>1?{done:jobCounts.facesDone,total:jobCounts.facesTotal}:null;
  // Operator direction, 21 September, and this is a release gate: while a morph is rendering the
@@ -144,6 +147,28 @@ function progress(event){
  if(units&&UNIT_TERMINAL_STAGES.has(stage))return;
  const bar=stage==='export'?fraction:units?units.done/units.total:(Number.isFinite(fraction)?fraction:0);
  listener({jobId:currentJob,stage,text,fraction:bar});}
+/**
+ * The first face on a new device runs the route's correctness check before the face: seven reference syntheses, each
+ * fetching a small fixture. Each of those spoke its own line, so for most of a minute the status flipped between
+ * "Generating…", "Face generated." and "Downloading model files… 141 MB of 158 MB" every few seconds, beside an
+ * "about 3 seconds remaining" for the one face asked for, and never said that the device was being checked. Once
+ * the model is loaded, the check holds one line with its step count; its fixture downloads and syntheses are silent.
+ * Any stage outside the check ends it, so the face's own stages speak as before.
+ * Returns the line to show, null for a silent check stage, or undefined when no check is running.
+ */
+let deviceCheck=null;
+const CHECK_STAGES=new Set(['canary','asset-acquisition','runtime-loading','model-loading','model-loaded','synthesis','synthesis-complete']);
+export function deviceCheckLine(stage,event={}){
+ const total=Number(event.total);
+ if(stage==='canary'&&Number.isInteger(total)&&total>0){
+  const step=Math.min(Math.max(Number(event.loaded)||0,0),total-1)+1;
+  deviceCheck={job:currentJob,step,total,modelReady:deviceCheck?.job===currentJob&&deviceCheck.modelReady};
+ }else if(!deviceCheck)return undefined;
+ else if(deviceCheck.job!==currentJob||!CHECK_STAGES.has(stage)){deviceCheck=null;return undefined;}
+ else if(stage==='model-loaded'||stage==='synthesis')deviceCheck.modelReady=true;
+ if(!deviceCheck.modelReady)return undefined;
+ return stage==='canary'||stage==='synthesis'?`Checking this device… step ${deviceCheck.step} of ${deviceCheck.total}`:null;
+}
 // Stages that mean "this one unit finished". True, and useless mid-job: the visitor asked for
 // thirty faces, so one of them completing is not a status worth replacing the count with.
 // The only stages allowed to speak while a morph renders: the frame counter, and the export that

@@ -331,7 +331,7 @@ export function MorphSlot(p: MorphSlotProps) {
         >
           More options
         </Button>
-        <Button color="inherit" variant="text" onClick={p.onAddFace}>
+        <Button color="inherit" variant="text" data-next-add-face="" onClick={p.onAddFace}>
           Add face
         </Button>
         {p.busy && !morphActive && (

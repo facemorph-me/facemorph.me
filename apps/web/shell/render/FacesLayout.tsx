@@ -70,6 +70,20 @@ function focusFace(root: HTMLElement | null, id: string | undefined): void {
   target?.focus({ preventScroll: false });
 }
 
+/**
+ * A face just added: bring its tile into view and put the caret in its words. Adding the third face on a phone turns
+ * the tall stack into a short strip, and the page kept its old scroll position, so the person was left reading the
+ * Help text below with the new face scrolled away above and focus on nothing.
+ */
+function focusAdded(root: HTMLElement | null, id: string | undefined): void {
+  if (!root || !id) return;
+  const tile = root.querySelector<HTMLElement>(`[data-next-face="${CSS.escape(id)}"]`);
+  if (!tile) return;
+  tile.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  const field = tile.querySelector<HTMLElement>('.next-field input, input:not([hidden])');
+  field?.focus({ preventScroll: true });
+}
+
 function Strip({
   inputs,
   tile,
@@ -279,6 +293,11 @@ export function FacesLayout({
   // A press on a face's Remove: remember where it was, so focus lands on a neighbour once it is gone.
   const onClickCapture = (e: MouseEvent<HTMLElement>) => {
     const target = e.target as HTMLElement;
+    if (target.closest('[data-next-add-face]')) {
+      setAdded({ index: inputs.length, count: inputs.length, from: inputs });
+      setKeep(inputs.length);
+      return;
+    }
     const close = target.closest('.next-face-close');
     const id = close?.closest('[data-next-face]')?.getAttribute('data-next-face');
     if (!close || !id) return;
@@ -287,6 +306,25 @@ export function FacesLayout({
     pending.current = { index, gone: id };
     setKeep(index);
   };
+  // Every way of adding a face (the strip's and stack's + buttons, and Add face beside Morph) goes through here.
+  // A face being added at `index` to the faces `from`: brought into view once the faces change.
+  const [added, setAdded] = useState<{
+    index: number;
+    count: number;
+    from: readonly Input[];
+  } | null>(null);
+  const addAt = (position: number) => {
+    setAdded({ index: position, count: inputs.length, from: inputs });
+    setKeep(position);
+    onAddAt(position);
+  };
+  useLayoutEffect(() => {
+    if (!added || inputs === added.from) return;
+    setAdded(null);
+    // The add was refused: nothing new to bring into view.
+    if (inputs.length <= added.count) return;
+    focusAdded(root.current, inputs[Math.min(added.index, inputs.length - 1)]?.id);
+  }, [inputs, added]);
   useLayoutEffect(() => {
     const focusAfter = pending.current;
     if (!focusAfter) return;
@@ -348,9 +386,9 @@ export function FacesLayout({
             <div className="next-morph-cell next-morph-morph">{morphSlot}</div>
             <div className="next-morph-cell next-morph-to">{tile(second, 1, 'Morph to')}</div>
             <div className="next-morph-cell next-morph-vid">{videoSlot}</div>
-            {add('next-connector-lead', 'Add a face before Morph from', () => onAddAt(0))}
-            {add('next-connector-stack', 'Add a face between these two', () => onAddAt(1))}
-            {add('next-connector-trail', 'Add a face after Morph to', () => onAddAt(2))}
+            {add('next-connector-lead', 'Add a face before Morph from', () => addAt(0))}
+            {add('next-connector-stack', 'Add a face between these two', () => addAt(1))}
+            {add('next-connector-trail', 'Add a face after Morph to', () => addAt(2))}
           </div>
         </>
       );
@@ -361,7 +399,7 @@ export function FacesLayout({
         <Strip
           inputs={inputs}
           tile={tile}
-          onAddAt={onAddAt}
+          onAddAt={addAt}
           virtual={virtual}
           keep={keep}
           startOver={startOver}
@@ -377,7 +415,7 @@ export function FacesLayout({
       {openNotice}
       <div ref={root} className="next-morph-content n3" onClickCapture={onClickCapture}>
         <div className="next-faces-row" data-next-face-count={inputs.length}>
-          {tilesWithConnectors(inputs, tile, onAddAt)}
+          {tilesWithConnectors(inputs, tile, addAt)}
         </div>
         <p className="next-last-face-note" role="note">
           This is your only face, so it has no Remove. Add a face to make a morph.

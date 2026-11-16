@@ -86,6 +86,9 @@ export function FaceField({
   const [anchor, setAnchor] = useState<HTMLDivElement | null>(null); // the start adornment the menu opens from
   const [open, setOpen] = useState(false);
   const burger = useRef<HTMLButtonElement | null>(null);
+  // An empty face nobody has typed in yet (a new face, Start over) is unfinished, not wrong: it is not drawn as an
+  // error until the person has edited it. Create morph's own line still names the face that needs words.
+  const [edited, setEdited] = useState(false);
   // Choosing Encode image opens this card's file chooser without replacing the existing face.
   const entry = (kind: FaceMode, icon: ReactNode, text: string) => (
     <MenuItem
@@ -134,6 +137,7 @@ export function FaceField({
           ? '0 to 4294967295'
           : 'Just type anything';
   const problem = faceInputProblem(item);
+  const shown = problem !== null && (edited || item.value !== '') ? problem : null;
   return (
     <>
       <Menu anchorEl={anchor} keepMounted open={open} onClose={() => setOpen(false)}>
@@ -179,9 +183,12 @@ export function FaceField({
           disabled={disabled}
           variant="outlined"
           label={label}
-          onChange={(e) => onEdit(e.target.value)}
-          error={problem !== null}
-          helperText={problem}
+          onChange={(e) => {
+            setEdited(true);
+            onEdit(e.target.value);
+          }}
+          error={shown !== null}
+          helperText={shown}
           onKeyDown={(e) => {
             // Only Enter in the text itself runs Generate; Enter on the burger opens its menu.
             if (
